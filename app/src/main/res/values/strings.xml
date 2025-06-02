@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Sleepy</string>
+    <string name="accessibility_description">基于无障碍的sleepy client</string>
+</resources>
