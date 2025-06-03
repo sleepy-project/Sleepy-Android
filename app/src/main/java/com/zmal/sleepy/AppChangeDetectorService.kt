@@ -3,10 +3,11 @@ package com.zmal.sleepy
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
-import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
-import android.util.Log
+import android.os.Handler
+import android.os.Looper
+//import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import okhttp3.Call
 import okhttp3.Callback
@@ -17,13 +18,16 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.json.JSONObject
 import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 class AppChangeDetectorService : AccessibilityService() {
 
     companion object {
-        private const val TAG = "AppTracker"
-        private const val MIN_INTERVAL_MS = 500L // 0.5秒间隔
+//        private const val TAG = "AppTracker"
+        private const val REPORT_DELAY_MS = 1000L // 1秒延迟
     }
 
     private val httpClient by lazy {
@@ -33,7 +37,11 @@ class AppChangeDetectorService : AccessibilityService() {
             .build()
     }
 
+    private val handler = Handler(Looper.getMainLooper())
+    private var reportRunnable: Runnable? = null
     private var lastSentTime = 0L
+    private var pendingAppName: String? = null
+    private val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
     override fun onServiceConnected() {
         serviceInfo = AccessibilityServiceInfo().apply {
@@ -50,22 +58,38 @@ class AppChangeDetectorService : AccessibilityService() {
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val packageName = event.packageName?.toString()
             if (!packageName.isNullOrEmpty()) {
-                val appName = getAppName(packageName)
-                val currentTime = System.currentTimeMillis()
-
-                logInfo("[$currentTime] 检测到应用切换: $appName")
-
-                if (currentTime - lastSentTime > MIN_INTERVAL_MS) {
-                    lastSentTime = currentTime
-                    sendToServer(appName)
+                if (packageName.contains("input", true)) {
+                    logInfo("检测到输入法不上报")
+                    return
                 }
+
+                if (getAppName(packageName).contains("输入法", true)) {
+                    logInfo("检测到输入法不上报")
+                    return
+                }
+
+                pendingAppName = getAppName(packageName)
+
+                // 取消之前任务
+                reportRunnable?.let { handler.removeCallbacks(it) }
+
+                reportRunnable = Runnable {
+                    val currentTime = System.currentTimeMillis()
+
+                        lastSentTime = currentTime
+                        val time = sdf.format(Date(currentTime))
+                        logInfo("[$time] 检测到应用切换: $pendingAppName")
+                        sendToServer(pendingAppName!!)
+
+                    pendingAppName = null
+                }
+                handler.postDelayed(reportRunnable!!, REPORT_DELAY_MS)
             }
         }
     }
 
-
     private fun sendToServer(appName: String) {
-        val prefs = getSharedPreferences("config", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("config", MODE_PRIVATE)
         val url = prefs.getString("server_url", null) ?: run {
             logInfo("未配置服务器地址")
             return
@@ -93,7 +117,7 @@ class AppChangeDetectorService : AccessibilityService() {
         val request = Request.Builder()
             .url(url)
             .post(requestBody)
-            .addHeader("User-Agent", "AppTracker/1.0")
+            .addHeader("User-Agent", "Sleep-Android")
             .build()
 
         httpClient.newCall(request).enqueue(object : Callback {
@@ -104,13 +128,14 @@ class AppChangeDetectorService : AccessibilityService() {
             override fun onResponse(call: Call, response: Response) {
                 response.use { resp ->
                     if (resp.isSuccessful) {
-                        logInfo("发送成功: ${resp.code}")
+                        if(resp.code!=200){
+                            logInfo("发送成功但非预期: ${resp.code}")
+                        }
                     } else {
                         logInfo("服务器错误: ${resp.code} - ${resp.message}")
                     }
                 }
             }
-
         })
     }
 
@@ -125,12 +150,10 @@ class AppChangeDetectorService : AccessibilityService() {
 
             val appInfo = pm.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
             pm.getApplicationLabel(appInfo).toString()
-        } catch (e: PackageManager.NameNotFoundException) {
-            packageName // 包名不存在
-        } catch (e: SecurityException) {
+        } catch (_: SecurityException) {
             logInfo("Permission denied for $packageName")
             packageName // 权限不足
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             logInfo("Unexpected error for $packageName")
             packageName // 其他异常
         }
@@ -141,13 +164,13 @@ class AppChangeDetectorService : AccessibilityService() {
         return try {
             getPackageInfo(packageName, 0)
             true
-        } catch (e: PackageManager.NameNotFoundException) {
+        } catch (_: PackageManager.NameNotFoundException) {
             false
         }
     }
 
     private fun logInfo(message: String) {
-        Log.d(TAG, message)
+//        Log.d(TAG, message)
         LogRepository.addLog(message)
     }
 
@@ -157,6 +180,8 @@ class AppChangeDetectorService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // 移除所有待处理的任务
+        reportRunnable?.let { handler.removeCallbacks(it) }
         logInfo("无障碍服务已销毁")
     }
 }
