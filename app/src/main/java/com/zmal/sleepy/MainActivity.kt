@@ -6,7 +6,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.net.Uri
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
@@ -26,7 +25,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Edit
+
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -43,14 +48,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.zmal.sleepy.ui.theme.SleepyTheme
+import androidx.core.net.toUri
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -67,7 +74,7 @@ class MainActivity : ComponentActivity() {
 
     private fun checkAndRequestBatteryOptimization() {
 
-            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            val powerManager = getSystemService(POWER_SERVICE) as PowerManager
             if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
                 requestIgnoreBatteryOptimization(this)
             }
@@ -76,8 +83,8 @@ class MainActivity : ComponentActivity() {
 
     private fun startKeepAliveService() {
         val intent = Intent(this, KeepAliveService::class.java)
-            startForegroundService(intent)
-            startService(intent)
+        startForegroundService(intent)
+        startService(intent)
     }
 }
 
@@ -99,7 +106,7 @@ fun MainScreen() {
         batteryOptimizationIgnored.value = isIgnoringBatteryOptimizations(context)
     }
 
-    val lifecycleOwner = LocalLifecycleOwner.current
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -168,12 +175,13 @@ fun StatusIndicatorSection(
                 else MaterialTheme.colorScheme.error
             )
             Spacer(modifier = Modifier.width(12.dp))
-            Button(
+            if (!accessibilityEnabled){Button(
                 onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                 modifier = Modifier.height(36.dp)
             ) {
                 Text("开启")
-            }
+            }}
+
         }
 
         // 电池优化状态
@@ -185,13 +193,15 @@ fun StatusIndicatorSection(
                 else MaterialTheme.colorScheme.error
             )
             Spacer(modifier = Modifier.width(12.dp))
-            Button(
-                onClick = { requestIgnoreBatteryOptimization(context) },
-                enabled =  !batteryOptimizationIgnored,
-                modifier = Modifier.height(36.dp)
-            ) {
-                Text("忽略")
+            if (!batteryOptimizationIgnored) {
+                Button(
+                    onClick = { requestIgnoreBatteryOptimization(context) },
+                    modifier = Modifier.height(36.dp)
+                ) {
+                    Text("忽略")
+                }
             }
+
         }
     }
 }
@@ -203,10 +213,11 @@ fun ConfigInputSection(
 ) {
     var serverUrl by remember { mutableStateOf(initialConfig["server_url"] ?: "") }
     var secret by remember { mutableStateOf(initialConfig["secret"] ?: "") }
+    var secretVisible by remember { mutableStateOf(false) }
     var id by remember { mutableStateOf(initialConfig["id"] ?: "") }
     var showName by remember { mutableStateOf(initialConfig["show_name"] ?: "") }
+    var isEditing by remember { mutableStateOf(false) }
 
-    // 当初始配置变化时更新状态
     LaunchedEffect(initialConfig) {
         serverUrl = initialConfig["server_url"] ?: ""
         secret = initialConfig["secret"] ?: ""
@@ -220,51 +231,71 @@ fun ConfigInputSection(
 
         OutlinedTextField(
             value = serverUrl,
-            onValueChange = { serverUrl = it },
+            onValueChange = { if (isEditing) serverUrl = it },
             label = { Text("服务器地址") },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            enabled = isEditing
         )
         Spacer(modifier = Modifier.height(8.dp))
 
         OutlinedTextField(
             value = secret,
-            onValueChange = { secret = it },
+            onValueChange = { if (isEditing) secret = it },
             label = { Text("服务器密钥") },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            visualTransformation = if (secretVisible) VisualTransformation.None else PasswordVisualTransformation(),
+            enabled = isEditing,
+            trailingIcon = {
+                val icon = if (secretVisible) Icons.Filled.Edit else Icons.Filled.Lock
+                IconButton(
+                    onClick = { if (isEditing) secretVisible = !secretVisible }
+                ) {
+                    Icon(imageVector = icon, contentDescription = "切换可见性")
+                }
+            }
         )
         Spacer(modifier = Modifier.height(8.dp))
 
         OutlinedTextField(
             value = id,
-            onValueChange = { id = it },
+            onValueChange = { if (isEditing) id = it },
             label = { Text("设备ID") },
             modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            singleLine = true
+            singleLine = true,
+            enabled = isEditing
         )
         Spacer(modifier = Modifier.height(8.dp))
 
         OutlinedTextField(
             value = showName,
-            onValueChange = { showName = it },
+            onValueChange = { if (isEditing) showName = it },
             label = { Text("显示名称") },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            enabled = isEditing
         )
         Spacer(modifier = Modifier.height(12.dp))
 
         Button(
-            onClick = { onSave(serverUrl, secret, id, showName) },
+            onClick = {
+                if (isEditing) {
+                    onSave(serverUrl, secret, id, showName)
+                }
+                isEditing = !isEditing
+            },
             modifier = Modifier.fillMaxWidth(),
-            enabled = serverUrl.isNotBlank() && secret.isNotBlank() &&
-                    id.isNotBlank() && showName.isNotBlank()
+            enabled = if (isEditing) {
+                serverUrl.isNotBlank() && secret.isNotBlank() && id.isNotBlank() && showName.isNotBlank()
+            } else true
         ) {
-            Text("保存配置")
+            Text(if (isEditing) "保存配置" else "编辑配置")
         }
     }
 }
+
 
 @Composable
 fun LogDisplaySection(logs: List<String>) {
@@ -275,7 +306,7 @@ fun LogDisplaySection(logs: List<String>) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(200.dp)
+                .height(300.dp)
         ) {
             items(logs.reversed()) { log ->
                 Text(
@@ -327,7 +358,7 @@ private fun saveConfig(
 fun requestIgnoreBatteryOptimization(context: Context) {
 
         val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-            data = Uri.parse("package:${context.packageName}")
+            data = "package:${context.packageName}".toUri()
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         context.startActivity(intent)
