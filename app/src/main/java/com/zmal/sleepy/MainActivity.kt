@@ -239,36 +239,37 @@ fun ConfigInputSection(
         )
         Spacer(modifier = Modifier.height(8.dp))
 
-        OutlinedTextField(
-            value = secret,
-            onValueChange = { if (isEditing) secret = it },
-            label = { Text("服务器密钥") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            visualTransformation = if (secretVisible) VisualTransformation.None else PasswordVisualTransformation(),
-            enabled = isEditing,
-            trailingIcon = {
-                val icon = if (secretVisible) Icons.Filled.Edit else Icons.Filled.Lock
-                IconButton(
-                    onClick = { if (isEditing) secretVisible = !secretVisible }
-                ) {
-                    Icon(imageVector = icon, contentDescription = "切换可见性")
+        if(isEditing) {
+            OutlinedTextField(
+                value = secret,
+                onValueChange = { if (isEditing) secret = it },
+                label = { Text("服务器密钥") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                visualTransformation = if (secretVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                enabled = isEditing,
+                trailingIcon = {
+                    val icon = if (secretVisible) Icons.Filled.Edit else Icons.Filled.Lock
+                    IconButton(
+                        onClick = { if (isEditing) secretVisible = !secretVisible }
+                    ) {
+                        Icon(imageVector = icon, contentDescription = "切换可见性")
+                    }
                 }
-            }
-        )
-        Spacer(modifier = Modifier.height(8.dp))
+            )
+            Spacer(modifier = Modifier.height(8.dp))
 
-        OutlinedTextField(
-            value = id,
-            onValueChange = { if (isEditing) id = it },
-            label = { Text("设备ID") },
-            modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            singleLine = true,
-            enabled = isEditing
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
+            OutlinedTextField(
+                value = id,
+                onValueChange = { if (isEditing) id = it },
+                label = { Text("设备ID") },
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                enabled = isEditing
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
         OutlinedTextField(
             value = showName,
             onValueChange = { if (isEditing) showName = it },
