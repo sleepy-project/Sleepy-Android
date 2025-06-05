@@ -297,7 +297,6 @@ fun ConfigInputSection(
     }
 }
 
-
 @Composable
 fun LogDisplaySection(logs: List<String>) {
     Column(modifier = Modifier.fillMaxWidth()) {
