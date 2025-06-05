@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.Looper
 //import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityWindowInfo
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -26,7 +27,6 @@ import java.util.concurrent.TimeUnit
 class AppChangeDetectorService : AccessibilityService() {
 
     companion object {
-//        private const val TAG = "AppTracker"
         private const val REPORT_DELAY_MS = 1000L // 1秒延迟
     }
 
@@ -40,26 +40,37 @@ class AppChangeDetectorService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var reportRunnable: Runnable? = null
     private var lastSentTime = 0L
-    private var pendingAppName: String? = null
-    private val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+    @Volatile private var lastApp: String? = null
+    @Volatile private var pendingAppName: String? = null
+    private val sdf by lazy {
+        SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+    }
 
     override fun onServiceConnected() {
         serviceInfo = AccessibilityServiceInfo().apply {
             eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
-            flags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
-                    AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+            flags =
+                AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
             notificationTimeout = 100
         }
         logInfo("无障碍服务已连接")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        if (event.eventType == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
+            logInfo("检测到输入法窗口不上报")
+            return
+        }
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val packageName = event.packageName?.toString()
             if (!packageName.isNullOrEmpty()) {
+
+                if(packageName==lastApp)return
+
+
                 if (packageName.contains("input", true)) {
-                    logInfo("检测到输入法不上报")
+                    logInfo("检测到输入法包名不上报")
                     return
                 }
 
@@ -76,11 +87,12 @@ class AppChangeDetectorService : AccessibilityService() {
                 reportRunnable = Runnable {
                     val currentTime = System.currentTimeMillis()
 
-                        lastSentTime = currentTime
-                        val time = sdf.format(Date(currentTime))
-                        logInfo("[$time] 检测到应用切换: $pendingAppName")
-                        sendToServer(pendingAppName!!)
+                    lastSentTime = currentTime
+                    val time = sdf.format(Date(currentTime))
 
+                    logInfo("[$time] 检测到应用切换: $pendingAppName")
+                    sendToServer(pendingAppName!!)
+                    lastApp=packageName
                     pendingAppName = null
                 }
                 handler.postDelayed(reportRunnable!!, REPORT_DELAY_MS)
@@ -95,9 +107,9 @@ class AppChangeDetectorService : AccessibilityService() {
             return
         }
 
-        val secret = prefs.getString("secret", "") ?: ""
-        val id = prefs.getString("id", "") ?: ""
-        val showName = prefs.getString("show_name", "") ?: ""
+        val secret = requireNotNull(prefs.getString("secret", null)) { "无效secret" }
+        val id = requireNotNull(prefs.getString("id", null)) { "无效ID" }
+        val showName = requireNotNull(prefs.getString("show_name", null)) { "无效ID" }
 
         if (secret.isEmpty() || id.isEmpty() || showName.isEmpty()) {
             logInfo("无效配置参数")
@@ -114,11 +126,9 @@ class AppChangeDetectorService : AccessibilityService() {
 
         val requestBody = jsonObject.toString().toRequestBody("application/json".toMediaType())
 
-        val request = Request.Builder()
-            .url(url)
-            .post(requestBody)
-            .addHeader("User-Agent", "Sleep-Android")
-            .build()
+        val request =
+            Request.Builder().url(url).post(requestBody).addHeader("User-Agent", "Sleep-Android")
+                .build()
 
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
@@ -128,7 +138,7 @@ class AppChangeDetectorService : AccessibilityService() {
             override fun onResponse(call: Call, response: Response) {
                 response.use { resp ->
                     if (resp.isSuccessful) {
-                        if(resp.code!=200){
+                        if (resp.code != 200) {
                             logInfo("发送成功但非预期: ${resp.code}")
                         }
                     } else {
