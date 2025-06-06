@@ -11,14 +11,13 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-//import android.util.Log
 import android.view.accessibility.AccessibilityEvent
-import android.view.accessibility.AccessibilityWindowInfo
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.json.JSONObject
@@ -31,202 +30,185 @@ import java.util.concurrent.TimeUnit
 class AppChangeDetectorService : AccessibilityService() {
 
     companion object {
-        private const val REPORT_DELAY_MS = 1000L // 1秒延迟
+        private const val REPORT_DELAY_MS = 1000L
+        private const val CONFIG_NAME = "config"
+        private const val JSON_MIME = "application/json"
+        private const val USER_AGENT = "Sleep-Android"
+
         @Volatile var lastApp: String? = null
-        @Volatile var batteryPct: Int?=null
+        @Volatile var batteryPct: Int? = null
     }
 
-    private val httpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
-            .build()
+    private val httpClient by lazy { createHttpClient() }
+    private val dateFormat by lazy {
+        SimpleDateFormat("HH:mm:ss", Locale.getDefault())
     }
 
     private val handler = Handler(Looper.getMainLooper())
     private var reportRunnable: Runnable? = null
     private var lastSentTime = 0L
-    @Volatile private var pendingAppName: String? = null
-    @Volatile private var isUsing: Boolean?=true
-    @Volatile private var isCharging: Boolean?=true
-    private val sdf by lazy {
-        SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-    }
+    private var pendingAppName: String? = null
+    private var isUsing: Boolean = true
+    private var isCharging: Boolean = false
 
     override fun onServiceConnected() {
         serviceInfo = AccessibilityServiceInfo().apply {
             eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
-            flags =
-                AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+            flags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+                    AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
             notificationTimeout = 100
         }
         logInfo("无障碍服务已连接")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        val keyguardManager = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
 
-        if (event.eventType == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
-            logInfo("检测到输入法窗口不上报")
-            return
+        event.packageName?.toString()?.takeIf { it.isNotEmpty() }?.let { packageName ->
+            handlePackageChange(packageName)
         }
-        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            val packageName = event.packageName?.toString()
-            if (!packageName.isNullOrEmpty()) {
+    }
 
-                if(packageName==lastApp)return
+    private fun handlePackageChange(packageName: String) {
+        if (packageName == lastApp) return
+        if (isInputMethod(packageName)) return
 
+        pendingAppName = getAppName(packageName)
+        reportRunnable?.let { handler.removeCallbacks(it) }
 
-                if (packageName.contains("input", true)) {
-                    logInfo("检测到输入法包名不上报")
-                    return
-                }
+        reportRunnable = Runnable {
+            lastSentTime = System.currentTimeMillis()
+            updateDeviceState()
+            logAppSwitch()
+            pendingAppName?.let { sendToServer(it) }
+            lastApp = packageName
+            pendingAppName = null
+        }
+        handler.postDelayed(reportRunnable!!, REPORT_DELAY_MS)
+    }
 
-                if (getAppName(packageName).contains("输入法", true)) {
-                    logInfo("检测到输入法不上报")
-                    return
-                }
+    private fun isInputMethod(packageName: String): Boolean {
+        return packageName.contains("input", true) ||
+                getAppName(packageName).contains("输入法", true).also { if (it) logInfo("检测到输入法不上报") }
+    }
 
-                pendingAppName = getAppName(packageName)
+    private fun logAppSwitch() {
+        val time = dateFormat.format(Date(lastSentTime))
+        logInfo("[$time]检测到应用切换: $pendingAppName")
+    }
 
-                // 取消之前任务
-                reportRunnable?.let { handler.removeCallbacks(it) }
+    private fun updateDeviceState() {
+        isUsing = !(getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked
+        updateBatteryStatus()
+    }
 
-                reportRunnable = Runnable {
-                    val currentTime = System.currentTimeMillis()
-
-                    lastSentTime = currentTime
-                    val time = sdf.format(Date(currentTime))
-                    if (keyguardManager.isKeyguardLocked) {
-                        logInfo("[$time]屏幕已锁定")
-                        isUsing=false
-                    }
-                    logInfo("[$time] 检测到应用切换: $pendingAppName")
-
-                    sendToServer(pendingAppName!!)
-                    lastApp=packageName
-                    pendingAppName = null
-                }
-                handler.postDelayed(reportRunnable!!, REPORT_DELAY_MS)
-            }
+    private fun updateBatteryStatus() {
+        registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))?.let { intent ->
+            val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+            val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+            batteryPct = (level * 100 / scale.toFloat()).toInt()
+            isCharging = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
         }
     }
 
     private fun sendToServer(appName: String) {
-        val prefs = getSharedPreferences("config", MODE_PRIVATE)
-        val url = prefs.getString("server_url", null) ?: run {
-            logInfo("未配置服务器地址")
+        val (url, secret, id, showName) = getConfigValues() ?: run {
+            logInfo("配置参数不完整")
             return
         }
 
-        val secret = requireNotNull(prefs.getString("secret", null)) { "无效secret" }
-        val id = requireNotNull(prefs.getString("id", null)) { "无效ID" }
-        val showName = requireNotNull(prefs.getString("show_name", null)) { "无效ID" }
+        val request = Request.Builder()
+            .url(url)
+            .post(createRequestBody(appName, secret, id, showName))
+            .addHeader("User-Agent", USER_AGENT)
+            .build()
 
-        if (secret.isEmpty() || id.isEmpty() || showName.isEmpty()) {
-            logInfo("无效配置参数")
-            return
+        httpClient.newCall(request).enqueue(ServerCallback())
+    }
+
+    private fun getConfigValues(): Config? {
+        val prefs = getSharedPreferences(CONFIG_NAME, MODE_PRIVATE)
+        return prefs.run {
+            val url = getString("server_url", null)
+            val secret = getString("secret", null)
+            val id = getString("id", null)
+            val showName = getString("show_name", null)
+
+            if (url.isNullOrEmpty() || secret.isNullOrEmpty() ||
+                id.isNullOrEmpty() || showName.isNullOrEmpty()) null
+            else Config(url, secret, id, showName)
         }
+    }
 
-
-        val batteryStatusFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-        val batteryStatusIntent = registerReceiver(null, batteryStatusFilter)
-
-        batteryStatusIntent?.let { intent ->
-            val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
-            val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
-            batteryPct = (level * 100 / scale.toFloat()).toInt()
-
-            val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)
-            isCharging = plugged != 0
-
-        }
-
-        val notifications = getSharedPreferences("notes", MODE_PRIVATE)
-        notifications.edit().apply {
-            putString("last_app", lastApp)
-            putInt("battery_pct", batteryPct ?: -1)
-            apply()
-        }
-
-
-        val jsonObject = JSONObject().apply {
+    private fun createRequestBody(
+        appName: String,
+        secret: String,
+        id: String,
+        showName: String
+    ): RequestBody {
+        val json = JSONObject().apply {
             put("id", id)
             put("secret", secret)
             put("show_name", showName)
             put("using", isUsing)
-            put("app_name", "$appName[$batteryPct]${if (isCharging==true) "⚡️" else "🔋"}")
+            put("app_name", "$appName[$batteryPct%]${if (isCharging) "⚡️" else "🔋"}")
+        }
+        return json.toString().toRequestBody(JSON_MIME.toMediaType())
+    }
+
+    private fun getAppName(packageName: String): String = try {
+        when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                    !packageManager.isPackageInstalledCompat(packageName) -> packageName
+            else -> packageManager.getApplicationLabel(
+                packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
+            ).toString()
+        }
+    } catch (e: Exception) {
+        logInfo("获取应用名失败: ${e.message ?: "未知错误"}")
+        packageName
+    }
+
+    @Suppress("DEPRECATION")
+    private fun PackageManager.isPackageInstalledCompat(pkg: String): Boolean =
+        try { getPackageInfo(pkg, 0); true }
+        catch (_: PackageManager.NameNotFoundException) { false }
+
+    private inner class ServerCallback : Callback {
+        override fun onFailure(call: Call, e: IOException) {
+            logInfo("发送失败: ${e.message}")
         }
 
-        val requestBody = jsonObject.toString().toRequestBody("application/json".toMediaType())
-
-        val request =
-            Request.Builder().url(url).post(requestBody).addHeader("User-Agent", "Sleep-Android")
-                .build()
-
-        httpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                logInfo("发送失败: ${e.message}")
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                response.use { resp ->
-                    if (resp.isSuccessful) {
-                        if (resp.code != 200) {
-                            logInfo("发送成功但非预期: ${resp.code}")
-                        }
-                    } else {
-                        logInfo("服务器错误: ${resp.code} - ${resp.message}")
-                    }
+        override fun onResponse(call: Call, response: Response) {
+            response.use {
+                when {
+                    response.isSuccessful && response.code == 200 -> Unit
+                    response.isSuccessful -> logInfo("非预期响应: ${response.code}")
+                    else -> logInfo("服务器错误: ${response.code} - ${response.message}")
                 }
             }
-        })
-    }
-
-    private fun getAppName(packageName: String): String {
-        return try {
-            val pm = applicationContext.packageManager
-
-            // Android 11+ 包可见性检查
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                if (!pm.isPackageInstalled(packageName)) return packageName
-            }
-
-            val appInfo = pm.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
-            pm.getApplicationLabel(appInfo).toString()
-        } catch (_: SecurityException) {
-            logInfo("Permission denied for $packageName")
-            packageName // 权限不足
-        } catch (_: Exception) {
-            logInfo("Unexpected error for $packageName")
-            packageName // 其他异常
         }
     }
 
-    // 扩展函数：检查包是否安装（Android 11+ 兼容）
-    private fun PackageManager.isPackageInstalled(packageName: String): Boolean {
-        return try {
-            getPackageInfo(packageName, 0)
-            true
-        } catch (_: PackageManager.NameNotFoundException) {
-            false
-        }
-    }
+    private fun createHttpClient() = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .build()
 
-    private fun logInfo(message: String) {
-//        Log.d(TAG, message)
-        LogRepository.addLog(message)
-    }
-
-    override fun onInterrupt() {
-        logInfo("无障碍服务被中断")
-    }
-
+    override fun onInterrupt() = logInfo("无障碍服务被中断")
     override fun onDestroy() {
-        super.onDestroy()
-        // 移除所有待处理的任务
         reportRunnable?.let { handler.removeCallbacks(it) }
         logInfo("无障碍服务已销毁")
+        super.onDestroy()
     }
+
+    private fun logInfo(msg: String) = LogRepository.addLog(msg)
+
+    private data class Config(
+        val url: String,
+        val secret: String,
+        val id: String,
+        val showName: String
+    )
 }

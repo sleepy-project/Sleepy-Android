@@ -21,14 +21,13 @@
 
     <!-- 允许前台服务进行数据同步，保证数据及时更新 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!--获取媒体信息-->
+<!--
+    <uses-permission android:name="android.permission.MEDIA_CONTENT_CONTROL"/>
+-->
 
-<!--    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />-->
 
     <queries>
-        <!-- 查询特定应用 -->
-        <package android:name="com.tencent.mm" />
-
-        <!-- 或查询所有有启动器的应用 -->
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
@@ -71,8 +70,6 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
-
-
     </application>
 
 </manifest>
