@@ -44,9 +44,15 @@ class KeepAliveService : Service() {
     }
 
     private fun buildNotification(): Notification {
+        val prefs = getSharedPreferences("notes", MODE_PRIVATE)
+        val lastApp = prefs.getString("last_app", "无")
+        val batteryPct = prefs.getInt("battery_pct", -1)
+
+        val contentText = "$lastApp[$batteryPct]"
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Sleepy后台服务")
-            .setContentText("应用正在后台运行")
+            .setContentText(contentText)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()

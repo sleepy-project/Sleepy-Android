@@ -169,39 +169,35 @@ fun StatusIndicatorSection(
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "无障碍服务: ${if (accessibilityEnabled) "已启用" else "未启用"}",
-                color = if (accessibilityEnabled) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.error
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            if (!accessibilityEnabled){Button(
-                onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
-                modifier = Modifier.height(36.dp)
-            ) {
-                Text("开启")
-            }}
+            if (!accessibilityEnabled) {
+                Text(
+                    text = "无障碍服务",
+                    color = MaterialTheme.colorScheme.error
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                    Button(
+                        onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+                        modifier = Modifier.height(36.dp)
+                    ) {
+                        Text("未开启")
+                    }
 
-        }
-
-        // 电池优化状态
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "电池优化: ${if (batteryOptimizationIgnored) "已忽略" else "未忽略"}",
-                color = if (batteryOptimizationIgnored) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.error
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            if (!batteryOptimizationIgnored) {
-                Button(
-                    onClick = { requestIgnoreBatteryOptimization(context) },
-                    modifier = Modifier.height(36.dp)
-                ) {
-                    Text("忽略")
-                }
             }
-
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if(!batteryOptimizationIgnored) {
+                Text(
+                    text = "电池优化",
+                    color = MaterialTheme.colorScheme.error
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                    Button(
+                        onClick = { requestIgnoreBatteryOptimization(context) },
+                        modifier = Modifier.height(36.dp)
+                    ) {
+                        Text("忽略")
+                    }
+            }
         }
     }
 }

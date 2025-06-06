@@ -3,7 +3,11 @@ package com.zmal.sleepy
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.app.KeyguardManager
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -28,6 +32,8 @@ class AppChangeDetectorService : AccessibilityService() {
 
     companion object {
         private const val REPORT_DELAY_MS = 1000L // 1秒延迟
+        @Volatile var lastApp: String? = null
+        @Volatile var batteryPct: Int?=null
     }
 
     private val httpClient by lazy {
@@ -40,8 +46,9 @@ class AppChangeDetectorService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var reportRunnable: Runnable? = null
     private var lastSentTime = 0L
-    @Volatile private var lastApp: String? = null
     @Volatile private var pendingAppName: String? = null
+    @Volatile private var isUsing: Boolean?=true
+    @Volatile private var isCharging: Boolean?=true
     private val sdf by lazy {
         SimpleDateFormat("HH:mm:ss", Locale.getDefault())
     }
@@ -58,6 +65,8 @@ class AppChangeDetectorService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        val keyguardManager = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+
         if (event.eventType == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
             logInfo("检测到输入法窗口不上报")
             return
@@ -89,8 +98,12 @@ class AppChangeDetectorService : AccessibilityService() {
 
                     lastSentTime = currentTime
                     val time = sdf.format(Date(currentTime))
-
+                    if (keyguardManager.isKeyguardLocked) {
+                        logInfo("[$time]屏幕已锁定")
+                        isUsing=false
+                    }
                     logInfo("[$time] 检测到应用切换: $pendingAppName")
+
                     sendToServer(pendingAppName!!)
                     lastApp=packageName
                     pendingAppName = null
@@ -116,12 +129,34 @@ class AppChangeDetectorService : AccessibilityService() {
             return
         }
 
+
+        val batteryStatusFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+        val batteryStatusIntent = registerReceiver(null, batteryStatusFilter)
+
+        batteryStatusIntent?.let { intent ->
+            val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+            val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+            batteryPct = (level * 100 / scale.toFloat()).toInt()
+
+            val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)
+            isCharging = plugged != 0
+
+        }
+
+        val notifications = getSharedPreferences("notes", MODE_PRIVATE)
+        notifications.edit().apply {
+            putString("last_app", lastApp)
+            putInt("battery_pct", batteryPct ?: -1)
+            apply()
+        }
+
+
         val jsonObject = JSONObject().apply {
             put("id", id)
             put("secret", secret)
             put("show_name", showName)
-            put("using", true)
-            put("app_name", appName)
+            put("using", isUsing)
+            put("app_name", "$appName[$batteryPct]${if (isCharging==true) "⚡️" else "🔋"}")
         }
 
         val requestBody = jsonObject.toString().toRequestBody("application/json".toMediaType())
