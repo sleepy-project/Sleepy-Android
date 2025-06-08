@@ -1,12 +1,10 @@
 package com.zmal.sleepy
 
-import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import android.service.quicksettings.TileService
@@ -24,11 +22,13 @@ class KeepAliveService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        ServiceTracker.serviceStarted(this)
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
     }
     override fun onDestroy() {
         super.onDestroy()
+        ServiceTracker.serviceStopped(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -68,6 +68,21 @@ class KeepAliveService : Service() {
             .build()
     }
 }
+object ServiceTracker {
+    private val runningServices = mutableSetOf<String>()
+
+    fun serviceStarted(service: Service) {
+        runningServices.add(service.javaClass.name)
+    }
+
+    fun serviceStopped(service: Service) {
+        runningServices.remove(service.javaClass.name)
+    }
+
+    fun isServiceRunning(serviceClass: Class<*>): Boolean {
+        return runningServices.contains(serviceClass.name)
+    }
+}
 class NoteTiles : TileService() {
 
     override fun onClick() {
@@ -82,13 +97,7 @@ class NoteTiles : TileService() {
         }
     }
     private fun isServiceRunning(serviceClass: Class<*>): Boolean {
-        val manager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
-        for (service in manager.getRunningServices(Int.MAX_VALUE)) {
-            if (serviceClass.name == service.service.className) {
-                return true
-            }
-        }
-        return false
+        return ServiceTracker.isServiceRunning(serviceClass)
     }
 
 
