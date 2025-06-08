@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-    <!-- 添加网络权限，允许应用访问网络（如互联网） -->
+    <!-- 添加网络权限，允许应用访问网络-->
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- 添加网络状态权限，允许应用获取网络连接状态（如WiFi、移动数据等） -->
+    <!-- 添加网络状态权限，允许应用获取网络连接状态 -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- 允许应用启动前台服务，保证服务在后台不会被系统轻易杀掉 -->
@@ -15,12 +15,16 @@
 
     <!-- 允许应用请求忽略电池优化，避免系统限制后台运行 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- 允许应用发送通知（Android 13及以上需动态申请） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- 允许前台服务进行数据同步，保证数据及时更新 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!--无障碍-->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"/>
     <!--获取媒体信息-->
 <!--
     <uses-permission android:name="android.permission.MEDIA_CONTENT_CONTROL"/>
@@ -70,6 +74,17 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <service
+            android:name=".NoteTiles"
+            android:exported="true"
+            android:icon="@drawable/p3_122017500"
+            android:label="通知开关"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
     </application>
 
 </manifest>

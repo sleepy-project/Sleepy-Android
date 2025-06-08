@@ -14,6 +14,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,6 +48,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -73,12 +75,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkAndRequestBatteryOptimization() {
-
-            val powerManager = getSystemService(POWER_SERVICE) as PowerManager
-            if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
-                requestIgnoreBatteryOptimization(this)
-            }
-
+         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
+         if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+             requestIgnoreBatteryOptimization(this)
+         }
     }
 
     private fun startKeepAliveService() {
@@ -133,7 +133,20 @@ fun MainScreen() {
             Text(
                 text = "sleepy Android client",
                 style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(bottom = 16.dp)
+                modifier = Modifier.padding(bottom = 10.dp)
+            )
+            Text(
+                text = "releases",
+                color=Color(211,193,250),
+                modifier = Modifier
+                    .padding(10.dp)
+                    .clickable {
+                            let { annotation ->
+                                val intent = Intent(Intent.ACTION_VIEW,
+                                    "https://github.com/kmizmal/Sleepy-Android/releases/latest".toUri())
+                                context.startActivity(intent)
+                            }
+                    }
             )
 
             StatusIndicatorSection(
@@ -302,7 +315,7 @@ fun LogDisplaySection(logs: List<String>) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(300.dp)
+                .height(350.dp)
         ) {
             items(logs.reversed()) { log ->
                 Text(

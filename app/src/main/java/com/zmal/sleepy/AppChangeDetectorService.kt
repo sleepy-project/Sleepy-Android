@@ -170,7 +170,6 @@ class AppChangeDetectorService : AccessibilityService() {
         packageName
     }
 
-    @Suppress("DEPRECATION")
     private fun PackageManager.isPackageInstalledCompat(pkg: String): Boolean =
         try { getPackageInfo(pkg, 0); true }
         catch (_: PackageManager.NameNotFoundException) { false }
@@ -198,10 +197,23 @@ class AppChangeDetectorService : AccessibilityService() {
 
     override fun onInterrupt() = logInfo("无障碍服务被中断")
     override fun onDestroy() {
-        reportRunnable?.let { handler.removeCallbacks(it) }
+        reportRunnable?.let {
+            handler.removeCallbacks(it)
+            reportRunnable = null
+        }
         logInfo("无障碍服务已销毁")
         super.onDestroy()
     }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        reportRunnable?.let {
+            handler.removeCallbacks(it)
+            reportRunnable = null
+        }
+        return super.onUnbind(intent)
+    }
+
+
 
     private fun logInfo(msg: String) = LogRepository.addLog(msg)
 
