@@ -5,12 +5,12 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import android.service.quicksettings.TileService
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import kotlin.concurrent.thread
 
 class KeepAliveService : Service() {
 
@@ -23,10 +23,12 @@ class KeepAliveService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        ServiceTracker.startAccessibilityService()
         ServiceTracker.serviceStarted(this)
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
     }
+
     override fun onDestroy() {
         super.onDestroy()
         ServiceTracker.serviceStopped(this)
@@ -39,15 +41,14 @@ class KeepAliveService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun createNotificationChannel() {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = CHANNEL_DESC
-            }
-            getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
-
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            CHANNEL_NAME,
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = CHANNEL_DESC
+        }
+        getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
     }
 
     private fun buildNotification(): Notification {
@@ -69,6 +70,7 @@ class KeepAliveService : Service() {
             .build()
     }
 }
+
 object ServiceTracker {
     private val runningServices = mutableSetOf<String>()
 
@@ -84,26 +86,24 @@ object ServiceTracker {
         return runningServices.contains(serviceClass.name)
     }
 
-    fun restartAccessibilityService(context: Context) {
-        val packageName = context.packageName
-        val serviceName = "com.zmal.sleepy.AppChangeDetectorService"
-        val componentName = "$packageName/$serviceName"
-        val commands = listOf(
-            "settings put secure accessibility_enabled 0",
-            "sleep 1",
-            "settings put secure enabled_accessibility_services $componentName",
-            "settings put secure accessibility_enabled 1"
-        )
+    fun startAccessibilityService() {
+        thread {
+            try {
 
-        try {
-            for (cmd in commands) {
-                val process = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
-                process.waitFor()
+                Runtime.getRuntime().exec(
+                    "su -c 'settings put secure enabled_accessibility_services com.zmal.sleepy/com.zmal.sleepy.AppChangeDetectorService'"
+                ).waitFor()
+
+                Runtime.getRuntime().exec(
+                    "su -c 'settings put secure accessibility_enabled 1'"
+                ).waitFor()
+
+                // android.os.Process.killProcess(android.os.Process.myPid())
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            android.os.Process.killProcess(android.os.Process.myPid())
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
+
     }
 }
 
@@ -111,24 +111,22 @@ class NoteTiles : TileService() {
 
     override fun onClick() {
         super.onClick()
-        val serviceIntent = Intent(this, KeepAliveService::class.java)
-        try{
-            ServiceTracker.restartAccessibilityService(this)
-            Toast.makeText(this, "[su]Ciallo～(∠・ω< )⌒★", Toast.LENGTH_SHORT).show()
-        }catch (_: Exception){
-            if (isServiceRunning(KeepAliveService::class.java)) {
-                stopService(serviceIntent)
-                Toast.makeText(this, "已关闭通知服务", Toast.LENGTH_SHORT).show()
-            } else {
-                startService(serviceIntent)
-                Toast.makeText(this, "Ciallo～(∠・ω< )⌒★", Toast.LENGTH_SHORT).show()
-            }
-        }
 
+        val serviceIntent = Intent(this, KeepAliveService::class.java)
+        // 无障碍服务重启操作，放到后台线程，避免阻塞 UI
+        ServiceTracker.startAccessibilityService()
+        if (isServiceRunning(KeepAliveService::class.java)) {
+            stopService(serviceIntent)
+            Toast.makeText(this, "已关闭通知服务", Toast.LENGTH_SHORT).show()
+            qsTile.state = 1
+            qsTile.updateTile()
+        } else {
+            startForegroundService(serviceIntent)
+            Toast.makeText(this, "Ciallo～(∠・ω< )⌒★", Toast.LENGTH_SHORT).show()
+        }
     }
+
     private fun isServiceRunning(serviceClass: Class<*>): Boolean {
         return ServiceTracker.isServiceRunning(serviceClass)
     }
-
-
 }
