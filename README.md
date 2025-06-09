@@ -30,3 +30,5 @@ Vercel 部署预览: [sleepy-vercel.wyf9.top](https://sleepy-vercel.wyf9.top) ![
 > 服务器地址应该带上端口号,路径应该为`/device/set`
 > 当然如果你用`https`的`443`或者`http`的`80`，可以不带
 
+## 鸣谢
+> [磁贴图标](https://www.pixiv.net/artworks/122017500)

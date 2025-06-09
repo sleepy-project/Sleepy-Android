@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import android.service.quicksettings.TileService
@@ -82,19 +83,48 @@ object ServiceTracker {
     fun isServiceRunning(serviceClass: Class<*>): Boolean {
         return runningServices.contains(serviceClass.name)
     }
+
+    fun restartAccessibilityService(context: Context) {
+        val packageName = context.packageName
+        val serviceName = "com.zmal.sleepy.AppChangeDetectorService"
+        val componentName = "$packageName/$serviceName"
+        val commands = listOf(
+            "settings put secure accessibility_enabled 0",
+            "sleep 1",
+            "settings put secure enabled_accessibility_services $componentName",
+            "settings put secure accessibility_enabled 1"
+        )
+
+        try {
+            for (cmd in commands) {
+                val process = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
+                process.waitFor()
+            }
+            android.os.Process.killProcess(android.os.Process.myPid())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 }
+
 class NoteTiles : TileService() {
 
     override fun onClick() {
         super.onClick()
         val serviceIntent = Intent(this, KeepAliveService::class.java)
-        if (isServiceRunning(KeepAliveService::class.java)) {
-            stopService(serviceIntent)
-            Toast.makeText(this, "已关闭通知服务", Toast.LENGTH_SHORT).show()
-        } else {
-            startService(serviceIntent)
-            Toast.makeText(this, "Ciallo～(∠・ω< )⌒★", Toast.LENGTH_SHORT).show()
+        try{
+            ServiceTracker.restartAccessibilityService(this)
+            Toast.makeText(this, "[su]Ciallo～(∠・ω< )⌒★", Toast.LENGTH_SHORT).show()
+        }catch (_: Exception){
+            if (isServiceRunning(KeepAliveService::class.java)) {
+                stopService(serviceIntent)
+                Toast.makeText(this, "已关闭通知服务", Toast.LENGTH_SHORT).show()
+            } else {
+                startService(serviceIntent)
+                Toast.makeText(this, "Ciallo～(∠・ω< )⌒★", Toast.LENGTH_SHORT).show()
+            }
         }
+
     }
     private fun isServiceRunning(serviceClass: Class<*>): Boolean {
         return ServiceTracker.isServiceRunning(serviceClass)
