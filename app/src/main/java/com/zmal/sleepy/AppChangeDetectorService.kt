@@ -35,8 +35,10 @@ class AppChangeDetectorService : AccessibilityService() {
         private const val JSON_MIME = "application/json"
         private const val USER_AGENT = "Sleep-Android"
 
-        @Volatile var lastApp: String? = null
-        @Volatile var batteryPct: Int? = null
+        @Volatile
+        var lastApp: String? = null
+        @Volatile
+        var batteryPct: Int? = null
     }
 
     private val httpClient by lazy { createHttpClient() }
@@ -60,6 +62,7 @@ class AppChangeDetectorService : AccessibilityService() {
             notificationTimeout = 100
         }
         logInfo("无障碍服务已连接")
+        startKeepAliveService()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
@@ -90,7 +93,8 @@ class AppChangeDetectorService : AccessibilityService() {
 
     private fun isInputMethod(packageName: String): Boolean {
         return packageName.contains("input", true) ||
-                getAppName(packageName).contains("输入法", true).also { if (it) logInfo("检测到输入法不上报") }
+                packageName.contains("ime", true) ||
+                getAppName(packageName).contains("输入法", true)
     }
 
     private fun logAppSwitch() {
@@ -136,7 +140,8 @@ class AppChangeDetectorService : AccessibilityService() {
             val showName = getString("show_name", null)
 
             if (url.isNullOrEmpty() || secret.isNullOrEmpty() ||
-                id.isNullOrEmpty() || showName.isNullOrEmpty()) null
+                id.isNullOrEmpty() || showName.isNullOrEmpty()
+            ) null
             else Config(url, secret, id, showName)
         }
     }
@@ -161,6 +166,7 @@ class AppChangeDetectorService : AccessibilityService() {
         when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
                     !packageManager.isPackageInstalledCompat(packageName) -> packageName
+
             else -> packageManager.getApplicationLabel(
                 packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
             ).toString()
@@ -171,8 +177,11 @@ class AppChangeDetectorService : AccessibilityService() {
     }
 
     private fun PackageManager.isPackageInstalledCompat(pkg: String): Boolean =
-        try { getPackageInfo(pkg, 0); true }
-        catch (_: PackageManager.NameNotFoundException) { false }
+        try {
+            getPackageInfo(pkg, 0); true
+        } catch (_: PackageManager.NameNotFoundException) {
+            false
+        }
 
     private inner class ServerCallback : Callback {
         override fun onFailure(call: Call, e: IOException) {
@@ -214,8 +223,11 @@ class AppChangeDetectorService : AccessibilityService() {
     }
 
 
-
     private fun logInfo(msg: String) = LogRepository.addLog(msg)
+    private fun startKeepAliveService() {
+        val intent = Intent(this, KeepAliveService::class.java)
+        startForegroundService(intent)
+    }
 
     private data class Config(
         val url: String,

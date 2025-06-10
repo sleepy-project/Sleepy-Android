@@ -66,7 +66,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         checkAndRequestBatteryOptimization()
-        startKeepAliveService()
         setContent {
             SleepyTheme {
                 MainScreen()
@@ -81,11 +80,6 @@ class MainActivity : ComponentActivity() {
          }
     }
 
-    private fun startKeepAliveService() {
-        val intent = Intent(this, KeepAliveService::class.java)
-        startForegroundService(intent)
-        startService(intent)
-    }
 }
 
 @Composable

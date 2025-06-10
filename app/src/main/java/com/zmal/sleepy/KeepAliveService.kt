@@ -98,7 +98,6 @@ object ServiceTracker {
                     "su -c 'settings put secure accessibility_enabled 1'"
                 ).waitFor()
 
-                // android.os.Process.killProcess(android.os.Process.myPid())
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -113,16 +112,17 @@ class NoteTiles : TileService() {
         super.onClick()
 
         val serviceIntent = Intent(this, KeepAliveService::class.java)
-        // 无障碍服务重启操作，放到后台线程，避免阻塞 UI
         ServiceTracker.startAccessibilityService()
         if (isServiceRunning(KeepAliveService::class.java)) {
             stopService(serviceIntent)
-            Toast.makeText(this, "已关闭通知服务", Toast.LENGTH_SHORT).show()
             qsTile.state = 1
+            Toast.makeText(this, "已关闭通知服务", Toast.LENGTH_SHORT).show()
             qsTile.updateTile()
         } else {
             startForegroundService(serviceIntent)
+            qsTile.state = 2
             Toast.makeText(this, "Ciallo～(∠・ω< )⌒★", Toast.LENGTH_SHORT).show()
+            qsTile.updateTile()
         }
     }
 

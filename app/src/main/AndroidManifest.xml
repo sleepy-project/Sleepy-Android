@@ -17,14 +17,12 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
-    <!-- 允许应用发送通知（Android 13及以上需动态申请） -->
+    <!-- 允许应用发送通知 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- 允许前台服务进行数据同步，保证数据及时更新 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
-    <!--无障碍-->
-    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"/>
     <!--获取媒体信息-->
 <!--
     <uses-permission android:name="android.permission.MEDIA_CONTENT_CONTROL"/>
@@ -61,12 +59,12 @@
         <service
             android:name=".AppChangeDetectorService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
             <meta-data
-                android:name="android.accessibility service"
+                android:name="android.accessibilityservice"
                 android:resource="@xml/service_config" />
         </service>
         <service
