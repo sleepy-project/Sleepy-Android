@@ -3,10 +3,13 @@ package com.zmal.sleepy
 
 import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
@@ -54,6 +57,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -65,7 +70,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        checkAndRequestBatteryOptimization()
+        requestBatteryOptimizationIfNeeded()
+        requestNotificationPermissionIfNeeded()
         setContent {
             SleepyTheme {
                 MainScreen()
@@ -73,14 +79,30 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun checkAndRequestBatteryOptimization() {
-         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
-         if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
-             requestIgnoreBatteryOptimization(this)
-         }
+    private fun requestBatteryOptimizationIfNeeded() {
+        val powerManager = getSystemService(POWER_SERVICE) as? PowerManager
+        if (powerManager != null && !powerManager.isIgnoringBatteryOptimizations(packageName)) {
+            requestIgnoreBatteryOptimization(this)
+        }
     }
 
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val activity = this as? Activity
+            if (activity != null &&
+                ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    activity,
+                    arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                    1001
+                )
+            }
+        }
+    }
 }
+
 
 @Composable
 fun MainScreen() {
@@ -116,6 +138,22 @@ fun MainScreen() {
 
     val config by configLiveData.observeAsState(emptyMap())
 
+    val packageManager = context.packageManager
+    val packageName = context.packageName
+
+    val packageInfo = try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, 0)
+        }
+    } catch (_: PackageManager.NameNotFoundException) {
+        null
+    }
+    val versionCode = packageInfo?.longVersionCode
+    val versionName = packageInfo?.versionName ?: "N/A"
+
     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
         Column(
             modifier = Modifier
@@ -125,23 +163,28 @@ fun MainScreen() {
             verticalArrangement = Arrangement.Top
         ) {
             Text(
+
                 text = "sleepy Android client",
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(bottom = 10.dp)
             )
             Text(
-                text = "releases",
+                text = "$versionName($versionCode)",
                 color=Color(211,193,250),
                 modifier = Modifier
                     .padding(10.dp)
                     .clickable {
-                            let { annotation ->
-                                val intent = Intent(Intent.ACTION_VIEW,
-                                    "https://github.com/kmizmal/Sleepy-Android/releases/latest".toUri())
-                                context.startActivity(intent)
-                            }
+                        let { annotation ->
+                            val intent = Intent(
+                                Intent.ACTION_VIEW,
+                                "https://github.com/kmizmal/Sleepy-Android/releases/latest".toUri()
+                            )
+                            context.startActivity(intent)
+                        }
                     }
             )
+
+
 
             StatusIndicatorSection(
                 accessibilityEnabled = accessibilityEnabled.value,
