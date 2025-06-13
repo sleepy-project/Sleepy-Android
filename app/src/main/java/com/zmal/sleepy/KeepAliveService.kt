@@ -34,6 +34,13 @@ class KeepAliveService : Service() {
         ServiceTracker.serviceStopped(this)
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // 当用户在最近任务中划掉 App 时，也重启自己
+        val restart = Intent(applicationContext, KeepAliveService::class.java)
+        startForegroundService(restart)
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         return START_STICKY
     }

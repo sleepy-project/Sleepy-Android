@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 object LogRepository {
-    private val _logs = MutableSharedFlow<String>(replay = 50)
+    private val _logs = MutableSharedFlow<String>(replay = 30)
     val logs = _logs.asSharedFlow()
 
     fun addLog(log: String) {

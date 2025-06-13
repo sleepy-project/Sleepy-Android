@@ -57,8 +57,11 @@ class AppChangeDetectorService : AccessibilityService() {
         serviceInfo = AccessibilityServiceInfo().apply {
             eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
-            flags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
-                    AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+            flags = flags or
+                    AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+                    AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
+                    AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
+                    AccessibilityServiceInfo.FLAG_REQUEST_TOUCH_EXPLORATION_MODE
             notificationTimeout = 100
         }
         logInfo("无障碍服务已连接")
@@ -205,21 +208,26 @@ class AppChangeDetectorService : AccessibilityService() {
         .build()
 
     override fun onInterrupt() = logInfo("无障碍服务被中断")
-    override fun onDestroy() {
-        reportRunnable?.let {
-            handler.removeCallbacks(it)
-            reportRunnable = null
-        }
-        logInfo("无障碍服务已销毁")
-        super.onDestroy()
+    override fun onUnbind(intent: Intent?): Boolean {
+        reportRunnable?.let { handler.removeCallbacks(it) }
+        reportRunnable = null
+        val stopIntent = Intent(this, KeepAliveService::class.java)
+        stopService(stopIntent)
+        // 允许系统重连本服务
+        logInfo("服务解绑")
+        return true
     }
 
-    override fun onUnbind(intent: Intent?): Boolean {
-        reportRunnable?.let {
-            handler.removeCallbacks(it)
-            reportRunnable = null
-        }
-        return super.onUnbind(intent)
+    override fun onRebind(intent: Intent?) {
+        super.onRebind(intent)
+        startKeepAliveService()
+        logInfo("服务已重连")
+    }
+
+    override fun onDestroy() {
+        onUnbind(null)
+        logInfo("无障碍服务已销毁")
+        super.onDestroy()
     }
 
 
