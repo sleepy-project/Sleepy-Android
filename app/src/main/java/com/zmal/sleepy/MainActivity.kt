@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
@@ -348,7 +349,7 @@ fun LogDisplaySection(logs: List<String>) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text("日志输出", style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(8.dp))
-
+        SelectionContainer {
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
@@ -362,6 +363,7 @@ fun LogDisplaySection(logs: List<String>) {
                     style = MaterialTheme.typography.bodySmall
                 )
             }
+        }
         }
     }
 }

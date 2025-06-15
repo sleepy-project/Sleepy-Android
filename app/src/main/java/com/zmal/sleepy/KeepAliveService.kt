@@ -10,7 +10,6 @@ import android.os.IBinder
 import android.service.quicksettings.TileService
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
-import kotlin.concurrent.thread
 
 class KeepAliveService : Service() {
 
@@ -23,7 +22,6 @@ class KeepAliveService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        ServiceTracker.startAccessibilityService()
         ServiceTracker.serviceStarted(this)
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
@@ -93,24 +91,6 @@ object ServiceTracker {
         return runningServices.contains(serviceClass.name)
     }
 
-    fun startAccessibilityService() {
-        thread {
-            try {
-
-                Runtime.getRuntime().exec(
-                    "su -c 'settings put secure enabled_accessibility_services com.zmal.sleepy/com.zmal.sleepy.AppChangeDetectorService'"
-                ).waitFor()
-
-                Runtime.getRuntime().exec(
-                    "su -c 'settings put secure accessibility_enabled 1'"
-                ).waitFor()
-
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-
-    }
 }
 
 class NoteTiles : TileService() {
@@ -119,7 +99,6 @@ class NoteTiles : TileService() {
         super.onClick()
 
         val serviceIntent = Intent(this, KeepAliveService::class.java)
-        ServiceTracker.startAccessibilityService()
         if (isServiceRunning(KeepAliveService::class.java)) {
             stopService(serviceIntent)
             qsTile.state = 1

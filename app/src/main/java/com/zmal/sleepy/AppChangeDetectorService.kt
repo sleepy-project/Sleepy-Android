@@ -1,30 +1,21 @@
-// AppChangeDetectorService.kt
 package com.zmal.sleepy
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.KeyguardManager
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.BatteryManager
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
-import okhttp3.Call
-import okhttp3.Callback
+import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.Response
 import org.json.JSONObject
 import java.io.IOException
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
 import java.util.concurrent.TimeUnit
 
 class AppChangeDetectorService : AccessibilityService() {
@@ -35,23 +26,29 @@ class AppChangeDetectorService : AccessibilityService() {
         private const val JSON_MIME = "application/json"
         private const val USER_AGENT = "Sleep-Android"
 
+        val httpClient: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(10, TimeUnit.SECONDS)
+                .build()
+        }
+
         @Volatile
-        var lastApp: String? = null
+        var lastPackageName: String? = null
+        @Volatile
+        var lastAppName: String? = null
         @Volatile
         var batteryPct: Int? = null
     }
 
-    private val httpClient by lazy { createHttpClient() }
-    private val dateFormat by lazy {
-        SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-    }
-
+    private val dateFormat by lazy { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
     private val handler = Handler(Looper.getMainLooper())
     private var reportRunnable: Runnable? = null
     private var lastSentTime = 0L
     private var pendingAppName: String? = null
-    private var isUsing: Boolean = true
-    private var isCharging: Boolean = false
+    private var isUsing = true
+    private var isCharging = false
+    private lateinit var keepAliveIntent: Intent
 
     override fun onServiceConnected() {
         serviceInfo = AccessibilityServiceInfo().apply {
@@ -60,11 +57,11 @@ class AppChangeDetectorService : AccessibilityService() {
             flags = flags or
                     AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
                     AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
-                    AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
-                    AccessibilityServiceInfo.FLAG_REQUEST_TOUCH_EXPLORATION_MODE
+                    AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
             notificationTimeout = 100
         }
         logInfo("无障碍服务已连接")
+        keepAliveIntent = Intent(this, KeepAliveService::class.java)
         startKeepAliveService()
     }
 
@@ -77,76 +74,79 @@ class AppChangeDetectorService : AccessibilityService() {
     }
 
     private fun handlePackageChange(packageName: String) {
-        if (packageName == lastApp) return
         if (isInputMethod(packageName)) return
 
-        pendingAppName = getAppName(packageName)
+        val resolvedAppName = resolveAppName(packageName)
+        if (packageName == lastPackageName) return
+
         reportRunnable?.let { handler.removeCallbacks(it) }
+        lastPackageName = packageName
 
         reportRunnable = Runnable {
             lastSentTime = System.currentTimeMillis()
             updateDeviceState()
+            pendingAppName = resolvedAppName
             logAppSwitch()
-            pendingAppName?.let { sendToServer(it) }
-            lastApp = packageName
-            pendingAppName = null
+            sendToServer(resolvedAppName)
         }
         handler.postDelayed(reportRunnable!!, REPORT_DELAY_MS)
     }
 
-    private fun isInputMethod(packageName: String): Boolean {
-        return packageName.contains("input", true) ||
-                packageName.contains("ime", true) ||
-                getAppName(packageName).contains("输入法", true)
-    }
-
-    private fun logAppSwitch() {
-        val time = dateFormat.format(Date(lastSentTime))
-        logInfo("[$time]检测到应用切换: $pendingAppName")
-    }
-
-    private fun updateDeviceState() {
-        isUsing = !(getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked
-        updateBatteryStatus()
-    }
-
-    private fun updateBatteryStatus() {
-        registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))?.let { intent ->
-            val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
-            val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
-            batteryPct = (level * 100 / scale.toFloat()).toInt()
-            isCharging = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
+    private fun resolveAppName(packageName: String): String {
+        val appName = getAppName(packageName)
+        return if (appName == "系统界面") {
+            lastAppName ?: appName
+        } else {
+            lastAppName = appName
+            appName
         }
     }
 
+    private fun isInputMethod(packageName: String): Boolean {
+        return try {
+            val info = packageManager.getPackageInfo(packageName, PackageManager.GET_SERVICES)
+            info.services?.any { it.permission == "android.permission.BIND_INPUT_METHOD" } == true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun logAppSwitch() {
+        val time = if (lastSentTime > 0) dateFormat.format(Date(lastSentTime)) else "unknown"
+        val app = pendingAppName ?: "unknown"
+        logInfo("[$time] - $app")
+    }
+
+
+    private fun updateDeviceState() {
+        isUsing = !(getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked
+        val bm = getSystemService(BATTERY_SERVICE) as? BatteryManager
+        val chargingStatus = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_STATUS)
+        isCharging = chargingStatus == BatteryManager.BATTERY_STATUS_CHARGING || chargingStatus == BatteryManager.BATTERY_STATUS_FULL
+        batteryPct = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+    }
+
     private fun sendToServer(appName: String) {
-        val (url, secret, id, showName) = getConfigValues() ?: run {
+        val config = getConfigValues() ?: run {
             logInfo("配置参数不完整")
             return
         }
 
         val request = Request.Builder()
-            .url(url)
-            .post(createRequestBody(appName, secret, id, showName))
+            .url(config.url)
+            .post(createRequestBody(appName, config.secret, config.id, config.showName))
             .addHeader("User-Agent", USER_AGENT)
             .build()
 
         httpClient.newCall(request).enqueue(ServerCallback())
     }
 
-    private fun getConfigValues(): Config? {
-        val prefs = getSharedPreferences(CONFIG_NAME, MODE_PRIVATE)
-        return prefs.run {
-            val url = getString("server_url", null)
-            val secret = getString("secret", null)
-            val id = getString("id", null)
-            val showName = getString("show_name", null)
-
-            if (url.isNullOrEmpty() || secret.isNullOrEmpty() ||
-                id.isNullOrEmpty() || showName.isNullOrEmpty()
-            ) null
-            else Config(url, secret, id, showName)
-        }
+    private fun getConfigValues(): Config? = getSharedPreferences(CONFIG_NAME, MODE_PRIVATE).run {
+        val url = getString("server_url", null) ?: return null
+        val secret = getString("secret", null) ?: return null
+        val id = getString("id", null) ?: return null
+        val showName = getString("show_name", null) ?: return null
+        Config(url, secret, id, showName)
     }
 
     private fun createRequestBody(
@@ -160,31 +160,21 @@ class AppChangeDetectorService : AccessibilityService() {
             put("secret", secret)
             put("show_name", showName)
             put("using", isUsing)
-            put("app_name", "$appName[$batteryPct%]${if (isCharging) "⚡️" else "🔋"}")
+            put(
+                "app_name",
+                "$appName[${batteryPct ?: "-"}%]${if (isCharging) "\u26A1\uFE0F" else "\uD83D\uDD0B"}"
+            )
         }
         return json.toString().toRequestBody(JSON_MIME.toMediaType())
     }
 
     private fun getAppName(packageName: String): String = try {
-        when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-                    !packageManager.isPackageInstalledCompat(packageName) -> packageName
-
-            else -> packageManager.getApplicationLabel(
-                packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
-            ).toString()
-        }
+        val appInfo = packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
+        packageManager.getApplicationLabel(appInfo).toString()
     } catch (e: Exception) {
         logInfo("获取应用名失败: ${e.message ?: "未知错误"}")
         packageName
     }
-
-    private fun PackageManager.isPackageInstalledCompat(pkg: String): Boolean =
-        try {
-            getPackageInfo(pkg, 0); true
-        } catch (_: PackageManager.NameNotFoundException) {
-            false
-        }
 
     private inner class ServerCallback : Callback {
         override fun onFailure(call: Call, e: IOException) {
@@ -202,18 +192,12 @@ class AppChangeDetectorService : AccessibilityService() {
         }
     }
 
-    private fun createHttpClient() = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .build()
-
     override fun onInterrupt() = logInfo("无障碍服务被中断")
+
     override fun onUnbind(intent: Intent?): Boolean {
         reportRunnable?.let { handler.removeCallbacks(it) }
         reportRunnable = null
-        val stopIntent = Intent(this, KeepAliveService::class.java)
-        stopService(stopIntent)
-        // 允许系统重连本服务
+        stopService(keepAliveIntent)
         logInfo("服务解绑")
         return true
     }
@@ -230,11 +214,16 @@ class AppChangeDetectorService : AccessibilityService() {
         super.onDestroy()
     }
 
-
     private fun logInfo(msg: String) = LogRepository.addLog(msg)
+
     private fun startKeepAliveService() {
-        val intent = Intent(this, KeepAliveService::class.java)
-        startForegroundService(intent)
+        if (::keepAliveIntent.isInitialized) {
+            try {
+                startForegroundService(keepAliveIntent)
+            } catch (e: Exception) {
+                logInfo("无法启动保活服务: ${e.message}")
+            }
+        }
     }
 
     private data class Config(
