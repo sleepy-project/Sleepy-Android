@@ -12,7 +12,7 @@ android {
         applicationId = "com.zmal.sleepy"
         minSdk = 29
         targetSdk = 35
-        versionCode = 14
+        versionCode = 15
         versionName = "1.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

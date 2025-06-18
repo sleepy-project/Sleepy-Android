@@ -40,7 +40,12 @@ class AppChangeDetectorService : AccessibilityService() {
         @Volatile
         var batteryPct: Int? = null
     }
-
+    private data class Config(
+        val url: String,
+        val secret: String,
+        val id: String,
+        val showName: String
+    )
     private val dateFormat by lazy { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
     private val handler = Handler(Looper.getMainLooper())
     private var reportRunnable: Runnable? = null
@@ -71,6 +76,28 @@ class AppChangeDetectorService : AccessibilityService() {
         event.packageName?.toString()?.takeIf { it.isNotEmpty() }?.let { packageName ->
             handlePackageChange(packageName)
         }
+    }
+
+    override fun onInterrupt() = logInfo("无障碍服务被中断")
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        reportRunnable?.let { handler.removeCallbacks(it) }
+        reportRunnable = null
+        stopService(keepAliveIntent)
+        logInfo("服务解绑")
+        return true
+    }
+
+    override fun onRebind(intent: Intent?) {
+        super.onRebind(intent)
+        startKeepAliveService()
+        logInfo("服务已重连")
+    }
+
+    override fun onDestroy() {
+        onUnbind(null)
+        logInfo("无障碍服务已销毁")
+        super.onDestroy()
     }
 
     private fun handlePackageChange(packageName: String) {
@@ -113,8 +140,7 @@ class AppChangeDetectorService : AccessibilityService() {
 
     private fun logAppSwitch() {
         val time = if (lastSentTime > 0) dateFormat.format(Date(lastSentTime)) else "unknown"
-        val app = pendingAppName ?: "unknown"
-        logInfo("[$time] - $app")
+        logInfo("[$time] - $pendingAppName")
     }
 
 
@@ -192,28 +218,6 @@ class AppChangeDetectorService : AccessibilityService() {
         }
     }
 
-    override fun onInterrupt() = logInfo("无障碍服务被中断")
-
-    override fun onUnbind(intent: Intent?): Boolean {
-        reportRunnable?.let { handler.removeCallbacks(it) }
-        reportRunnable = null
-        stopService(keepAliveIntent)
-        logInfo("服务解绑")
-        return true
-    }
-
-    override fun onRebind(intent: Intent?) {
-        super.onRebind(intent)
-        startKeepAliveService()
-        logInfo("服务已重连")
-    }
-
-    override fun onDestroy() {
-        onUnbind(null)
-        logInfo("无障碍服务已销毁")
-        super.onDestroy()
-    }
-
     private fun logInfo(msg: String) = LogRepository.addLog(msg)
 
     private fun startKeepAliveService() {
@@ -226,10 +230,4 @@ class AppChangeDetectorService : AccessibilityService() {
         }
     }
 
-    private data class Config(
-        val url: String,
-        val secret: String,
-        val id: String,
-        val showName: String
-    )
 }
