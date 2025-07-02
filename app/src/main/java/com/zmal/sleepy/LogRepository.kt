@@ -10,14 +10,19 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
+enum class LogLevel {
+    VERBOSE,DEBUG, INFO, WARNING, ERROR
+}
+
 object LogRepository {
     private val _logs = MutableSharedFlow<String>(replay = 30)
     val logs = _logs.asSharedFlow()
-
-    fun addLog(log: String) {
-        _logs.tryEmit(log)
+    var LogLv = LogLevel.INFO
+    fun addLog(level: LogLevel, message: String) {
+        if (level >= LogLv) _logs.tryEmit("[$level] $message")
     }
 }
+
 class LogViewModel : ViewModel() {
     private val _logs = MutableStateFlow<List<String>>(emptyList())
     val logs: StateFlow<List<String>> = _logs

@@ -3,7 +3,7 @@ package com.zmal.sleepy
 
 import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
-import android.app.Activity
+import android.app.AppOpsManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -71,8 +71,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
         requestBatteryOptimizationIfNeeded()
         requestNotificationPermissionIfNeeded()
+        requestUsageStatsPermissionIfNeeded()
+        checkAccessibilityServiceEnabled()
+
         setContent {
             SleepyTheme {
                 MainScreen()
@@ -80,35 +84,73 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @SuppressLint("BatteryLife")
     private fun requestBatteryOptimizationIfNeeded() {
         val powerManager = getSystemService(POWER_SERVICE) as? PowerManager
         if (powerManager != null && !powerManager.isIgnoringBatteryOptimizations(packageName)) {
-            requestIgnoreBatteryOptimization(this)
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = "package:$packageName".toUri()
+            }
+            startActivity(intent)
         }
     }
 
     private fun requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val activity = this as? Activity
-            if (activity != null &&
-                ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
             ) {
                 ActivityCompat.requestPermissions(
-                    activity,
+                    this,
                     arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
                     1001
                 )
             }
         }
     }
+
+    private fun requestUsageStatsPermissionIfNeeded() {
+        val appOps = getSystemService(APP_OPS_SERVICE) as AppOpsManager
+        val mode = appOps.unsafeCheckOpNoThrow(
+            AppOpsManager.OPSTR_GET_USAGE_STATS,
+            android.os.Process.myUid(),
+            packageName
+        )
+        if (mode != AppOpsManager.MODE_ALLOWED) {
+            val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+                data = "package:$packageName".toUri()
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(intent)
+        }
+    }
+
+    private fun checkAccessibilityServiceEnabled() {
+
+        val accessibilityEnabled =
+            Settings.Secure.getInt(contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 0) == 1
+
+        if (!accessibilityEnabled) {
+            Toast.makeText(this, "无障碍权限未开启", Toast.LENGTH_LONG).show()
+
+            // 跳转设置页面
+            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(intent)
+        }
+    }
+
 }
 
 
 @Composable
 fun MainScreen() {
     val context = LocalContext.current
-    val sharedPreferences = remember { context.getSharedPreferences("config", Context.MODE_PRIVATE) }
+    val sharedPreferences =
+        remember { context.getSharedPreferences("config", Context.MODE_PRIVATE) }
     val configLiveData = remember { MutableLiveData<Map<String, String>>() }
     val logViewModel: LogViewModel = viewModel()
     val logs by logViewModel.logs.collectAsState(emptyList())
@@ -119,7 +161,8 @@ fun MainScreen() {
     // 加载配置
     LaunchedEffect(Unit) {
         loadConfig(sharedPreferences, configLiveData)
-        accessibilityEnabled.value = isAccessibilityServiceEnabled(context, AppChangeDetectorService::class.java)
+        accessibilityEnabled.value =
+            isAccessibilityServiceEnabled(context, AppChangeDetectorService::class.java)
         batteryOptimizationIgnored.value = isIgnoringBatteryOptimizations(context)
     }
 
@@ -127,7 +170,8 @@ fun MainScreen() {
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                accessibilityEnabled.value = isAccessibilityServiceEnabled(context, AppChangeDetectorService::class.java)
+                accessibilityEnabled.value =
+                    isAccessibilityServiceEnabled(context, AppChangeDetectorService::class.java)
                 batteryOptimizationIgnored.value = isIgnoringBatteryOptimizations(context)
             }
         }
@@ -171,7 +215,7 @@ fun MainScreen() {
             )
             Text(
                 text = "$versionName($versionCode)",
-                color=Color(211,193,250),
+                color = Color(211, 193, 250),
                 modifier = Modifier
                     .padding(10.dp)
                     .clickable {
@@ -200,7 +244,7 @@ fun MainScreen() {
                 onSave = { url, secret, id, name ->
                     saveConfig(sharedPreferences, url, secret, id, name)
                     loadConfig(sharedPreferences, configLiveData)
-                    LogRepository.addLog("配置已保存")
+                    LogRepository.addLog(LogLevel.INFO,"配置已保存")
                     Toast.makeText(context, "配置已保存", Toast.LENGTH_SHORT).show()
                 }
             )
@@ -226,28 +270,28 @@ fun StatusIndicatorSection(
                     color = MaterialTheme.colorScheme.error
                 )
                 Spacer(modifier = Modifier.width(12.dp))
-                    Button(
-                        onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
-                        modifier = Modifier.height(36.dp)
-                    ) {
-                        Text("未开启")
-                    }
+                Button(
+                    onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+                    modifier = Modifier.height(36.dp)
+                ) {
+                    Text("未开启")
+                }
 
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if(!batteryOptimizationIgnored) {
+            if (!batteryOptimizationIgnored) {
                 Text(
                     text = "电池优化",
                     color = MaterialTheme.colorScheme.error
                 )
                 Spacer(modifier = Modifier.width(12.dp))
-                    Button(
-                        onClick = { requestIgnoreBatteryOptimization(context) },
-                        modifier = Modifier.height(36.dp)
-                    ) {
-                        Text("忽略")
-                    }
+                Button(
+                    onClick = { requestIgnoreBatteryOptimization(context) },
+                    modifier = Modifier.height(36.dp)
+                ) {
+                    Text("忽略")
+                }
             }
         }
     }
@@ -286,7 +330,7 @@ fun ConfigInputSection(
         )
         Spacer(modifier = Modifier.height(8.dp))
 
-        if(isEditing) {
+        if (isEditing) {
             OutlinedTextField(
                 value = secret,
                 onValueChange = { if (isEditing) secret = it },
@@ -350,28 +394,28 @@ fun LogDisplaySection(logs: List<String>) {
         Text("日志输出", style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(8.dp))
         SelectionContainer {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(350.dp)
-        ) {
-            items(logs.reversed()) { log ->
-                Text(
-                    text = log,
-                    modifier = Modifier.padding(vertical = 4.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.bodySmall
-                )
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(350.dp)
+            ) {
+                items(logs.reversed()) { log ->
+                    Text(
+                        text = log,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
-        }
         }
     }
 }
 
 // ======== 工具函数 ========
 private fun isIgnoringBatteryOptimizations(context: Context): Boolean {
-        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-        return powerManager.isIgnoringBatteryOptimizations(context.packageName)
+    val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    return powerManager.isIgnoringBatteryOptimizations(context.packageName)
 }
 
 private fun loadConfig(
@@ -406,11 +450,11 @@ private fun saveConfig(
 @SuppressLint("BatteryLife")
 fun requestIgnoreBatteryOptimization(context: Context) {
 
-        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-            data = "package:${context.packageName}".toUri()
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        context.startActivity(intent)
+    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+        data = "package:${context.packageName}".toUri()
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+    }
+    context.startActivity(intent)
 
 }
 
