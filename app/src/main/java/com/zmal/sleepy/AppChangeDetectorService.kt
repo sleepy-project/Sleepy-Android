@@ -22,9 +22,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.json.JSONObject
 import java.io.IOException
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 class AppChangeDetectorService : AccessibilityService() {
@@ -54,7 +51,6 @@ class AppChangeDetectorService : AccessibilityService() {
         val url: String, val secret: String, val id: String, val showName: String
     )
 
-    private val dateFormat by lazy { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
     private val handler = Handler(Looper.getMainLooper())
     private var reportRunnable: Runnable? = null
     private var lastSentTime = 0L
@@ -78,12 +74,15 @@ class AppChangeDetectorService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || event.className == "android.widget.FrameLayout") {
-            logs(LogLevel.VERBOSE, "忽略无关事件: eventType=${event.eventType}, className=${event.className}")
+            logs(
+                LogLevel.VERBOSE,
+                "忽略无关事件: eventType=${event.eventType}, className=${event.className}"
+            )
             return
         }
 
         val realPkg = getForegroundApp(this)
-        logs(LogLevel.DEBUG, "getForegroundApp: ${realPkg ?: "null"}")
+        logs(LogLevel.VERBOSE, "getForegroundApp: ${realPkg ?: "null"}")
 
         if (realPkg == lastPackageName) {
             logs(LogLevel.VERBOSE, "包名未变，无需处理: $realPkg")
@@ -184,8 +183,7 @@ class AppChangeDetectorService : AccessibilityService() {
     }
 
     private fun logAppSwitch() {
-        val time = if (lastSentTime > 0) dateFormat.format(Date(lastSentTime)) else "unknown"
-        logs(LogLevel.INFO, "[$time] - $pendingAppName")
+        logs(LogLevel.INFO, "$pendingAppName")
     }
 
     private fun updateDeviceState() {
@@ -195,7 +193,10 @@ class AppChangeDetectorService : AccessibilityService() {
         isCharging =
             chargingStatus == BatteryManager.BATTERY_STATUS_CHARGING || chargingStatus == BatteryManager.BATTERY_STATUS_FULL
         batteryPct = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
-        logs(LogLevel.VERBOSE, "设备状态 - isUsing=$isUsing, isCharging=$isCharging, batteryPct=$batteryPct")
+        logs(
+            LogLevel.VERBOSE,
+            "设备状态 - isUsing=$isUsing, isCharging=$isCharging, batteryPct=$batteryPct"
+        )
     }
 
     private fun sendToServer(appName: String) {
@@ -252,7 +253,7 @@ class AppChangeDetectorService : AccessibilityService() {
             response.use {
                 when {
                     response.isSuccessful && response.code == 200 -> Unit
-                    response.isSuccessful -> logs(LogLevel.WARNING, "非预期响应: ${response.code}")
+                    response.isSuccessful -> logs(LogLevel.DEBUG, "非预期响应: ${response.code}")
                     else -> logs(
                         LogLevel.ERROR, "服务器错误: ${response.code} - ${response.message}"
                     )

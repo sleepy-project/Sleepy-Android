@@ -15,6 +15,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.clickable
@@ -92,9 +93,10 @@ class MainActivity : ComponentActivity() {
 
     private fun requestUsageStatsPermissionIfNeeded() {
         val appOps = getSystemService(APP_OPS_SERVICE) as AppOpsManager
-        val mode = appOps.unsafeCheckOpNoThrow(
+        val mode = appOps.checkOpNoThrow(
             AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), packageName
         )
+
         if (mode != AppOpsManager.MODE_ALLOWED) {
             val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
                 data = "package:$packageName".toUri()
@@ -105,7 +107,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkAccessibilityServiceEnabled() {
-        val enabled = Settings.Secure.getInt(contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 0) == 1
+        val enabled = isAccessibilityServiceEnabled(this, AppChangeDetectorService::class.java)
         if (!enabled) {
             Toast.makeText(this, "无障碍权限未开启", Toast.LENGTH_LONG).show()
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
@@ -113,12 +115,14 @@ class MainActivity : ComponentActivity() {
             })
         }
     }
+
 }
 
 @Composable
 fun MainScreen() {
     val context = LocalContext.current
-    val sharedPreferences = remember { context.getSharedPreferences("config", Context.MODE_PRIVATE) }
+    val sharedPreferences =
+        remember { context.getSharedPreferences("config", Context.MODE_PRIVATE) }
     val configLiveData = remember { MutableLiveData<Map<String, String>>() }
     val logViewModel: LogViewModel = viewModel()
     val logs by logViewModel.logs.collectAsState(emptyList())
@@ -127,7 +131,8 @@ fun MainScreen() {
 
     LaunchedEffect(Unit) {
         loadConfig(sharedPreferences, configLiveData)
-        accessibilityEnabled.value = isAccessibilityServiceEnabled(context, AppChangeDetectorService::class.java)
+        accessibilityEnabled.value =
+            isAccessibilityServiceEnabled(context, AppChangeDetectorService::class.java)
         batteryOptimizationIgnored.value = isIgnoringBatteryOptimizations(context)
     }
 
@@ -135,7 +140,8 @@ fun MainScreen() {
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                accessibilityEnabled.value = isAccessibilityServiceEnabled(context, AppChangeDetectorService::class.java)
+                accessibilityEnabled.value =
+                    isAccessibilityServiceEnabled(context, AppChangeDetectorService::class.java)
                 batteryOptimizationIgnored.value = isIgnoringBatteryOptimizations(context)
             }
         }
@@ -149,11 +155,12 @@ fun MainScreen() {
         val pm = context.packageManager
         val pkg = context.packageName
         try {
-            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                pm.getPackageInfo(pkg, PackageManager.PackageInfoFlags.of(0))
-            else
-                @Suppress("DEPRECATION") pm.getPackageInfo(pkg, 0)
-            "${info.versionName}(${info.longVersionCode})"
+            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) pm.getPackageInfo(
+                pkg,
+                PackageManager.PackageInfoFlags.of(0)
+            )
+            else @Suppress("DEPRECATION") pm.getPackageInfo(pkg, 0)
+            "v${info.versionName}(${info.longVersionCode})"
         } catch (_: Exception) {
             "N/A"
         }
@@ -180,8 +187,7 @@ fun MainScreen() {
                                 "https://github.com/kmizmal/Sleepy-Android/releases/latest".toUri()
                             )
                         )
-                    }
-            )
+                    })
 
             StatusIndicatorSection(
                 accessibilityEnabled = accessibilityEnabled.value,
@@ -192,8 +198,7 @@ fun MainScreen() {
             Spacer(modifier = Modifier.height(24.dp))
 
             ConfigInputSection(
-                initialConfig = config,
-                onSave = { url, secret, id, name, logLevel ->
+                initialConfig = config, onSave = { url, secret, id, name, logLevel ->
                     saveConfig(sharedPreferences, url, secret, id, name, logLevel)
                     loadConfig(sharedPreferences, configLiveData)
                     LogRepository.addLog(LogLevel.INFO, "配置已保存")
@@ -208,7 +213,9 @@ fun MainScreen() {
 }
 
 @Composable
-fun StatusIndicatorSection(accessibilityEnabled: Boolean, batteryOptimizationIgnored: Boolean, context: Context) {
+fun StatusIndicatorSection(
+    accessibilityEnabled: Boolean, batteryOptimizationIgnored: Boolean, context: Context
+) {
     Column(modifier = Modifier.fillMaxWidth()) {
         if (!accessibilityEnabled) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -217,7 +224,7 @@ fun StatusIndicatorSection(accessibilityEnabled: Boolean, batteryOptimizationIgn
                 Button(
                     onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
                     modifier = Modifier.height(36.dp)
-                ) { Text("未开启") }
+                ) { Text("去开启") }
             }
         }
 
@@ -228,7 +235,7 @@ fun StatusIndicatorSection(accessibilityEnabled: Boolean, batteryOptimizationIgn
                 Button(
                     onClick = { requestIgnoreBatteryOptimization(context) },
                     modifier = Modifier.height(36.dp)
-                ) { Text("忽略") }
+                ) { Text("去忽略") }
             }
         }
     }
@@ -236,8 +243,7 @@ fun StatusIndicatorSection(accessibilityEnabled: Boolean, batteryOptimizationIgn
 
 @Composable
 fun ConfigInputSection(
-    initialConfig: Map<String, String>,
-    onSave: (String, String, String, String, String) -> Unit
+    initialConfig: Map<String, String>, onSave: (String, String, String, String, String) -> Unit
 ) {
     val scrollState = rememberScrollState()
 
@@ -275,6 +281,15 @@ fun ConfigInputSection(
         Spacer(modifier = Modifier.height(8.dp))
 
         if (isEditing) {
+            BackHandler {
+                // 恢复为初始配置
+                serverUrl = initialConfig["server_url"] ?: ""
+                secret = initialConfig["secret"] ?: ""
+                id = initialConfig["id"] ?: ""
+                showName = initialConfig["show_name"] ?: ""
+                logLevel = initialConfig["LogLevel"] ?: "INFO"
+                isEditing = false
+            }
             OutlinedTextField(
                 value = secret,
                 onValueChange = { secret = it },
@@ -287,8 +302,7 @@ fun ConfigInputSection(
                     IconButton(onClick = { secretVisible = !secretVisible }) {
                         Icon(icon, contentDescription = "切换可见性")
                     }
-                }
-            )
+                })
 
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -310,9 +324,12 @@ fun ConfigInputSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { logLevel = option }
-                        .padding(4.dp)
-                ) {
-                    RadioButton(selected = (option == logLevel), onClick = { logLevel = option })
+                        .padding(2.dp)) {
+                    RadioButton(
+                        selected = (option == logLevel),
+                        onClick = { logLevel = option },
+                        modifier = Modifier.size(25.dp)
+                    )
                     Text(option)
                 }
             }
@@ -387,16 +404,19 @@ fun requestIgnoreBatteryOptimization(context: Context) {
     context.startActivity(intent)
 }
 
-fun isAccessibilityServiceEnabled(context: Context, service: Class<out AccessibilityService>): Boolean {
+fun isAccessibilityServiceEnabled(
+    context: Context, service: Class<out AccessibilityService>
+): Boolean {
     val serviceName = ComponentName(context, service).flattenToString()
     val enabledServices = Settings.Secure.getString(
-        context.contentResolver,
-        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
     ) ?: return false
     return enabledServices.split(':').any { it.equals(serviceName, ignoreCase = true) }
 }
 
-fun loadConfig(sharedPreferences: SharedPreferences, liveData: MutableLiveData<Map<String, String>>) {
+fun loadConfig(
+    sharedPreferences: SharedPreferences, liveData: MutableLiveData<Map<String, String>>
+) {
     val configMap = mapOf(
         "server_url" to (sharedPreferences.getString("server_url", "") ?: ""),
         "secret" to (sharedPreferences.getString("secret", "") ?: ""),
@@ -408,7 +428,14 @@ fun loadConfig(sharedPreferences: SharedPreferences, liveData: MutableLiveData<M
     LogRepository.setLogLevel(configMap["LogLevel"] ?: "INFO")
 }
 
-fun saveConfig(sharedPreferences: SharedPreferences, url: String, secret: String, id: String, showName: String, logLevel: String) {
+fun saveConfig(
+    sharedPreferences: SharedPreferences,
+    url: String,
+    secret: String,
+    id: String,
+    showName: String,
+    logLevel: String
+) {
     sharedPreferences.edit().apply {
         putString("server_url", url)
         putString("secret", secret)

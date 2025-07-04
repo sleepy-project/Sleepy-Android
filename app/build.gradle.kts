@@ -6,11 +6,12 @@ plugins {
 
 android {
     namespace = "com.zmal.sleepy"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.zmal.sleepy"
         minSdk = 29
+        //noinspection OldTargetApi
         targetSdk = 35
         versionCode = 19
         versionName = "1.6"

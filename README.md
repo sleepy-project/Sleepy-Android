@@ -5,7 +5,7 @@
 
 开发预览 (*不保证可用*): [sleepy-preview.wyf9.top](https://sleepy-preview.wyf9.top) ![](https://uptime.wyf9.top/api/badge/10/status) ![](https://uptime.wyf9.top/api/badge/10/uptime)
 
-HuggingFace 部署预览: [wyf9-sleepy.hf.space](https://wyf9-sleepy.hf.space) ![](https://uptime.wyf9.top/api/badge/22/status) ![](https://uptime.wyf9.top/api/badge/22/uptime),[sadg456-sleepy.hf.space](https://sadg456-sleepy.hf.space/)
+HuggingFace 部署预览: [wyf9-sleepy.hf.space](https://wyf9-sleepy.hf.space) ![](https://uptime.wyf9.top/api/badge/22/status) ![](https://uptime.wyf9.top/api/badge/22/uptime),[https://7d820-sleepy.hf.space](https://https://7d820-sleepy.hf.space/)
 
 Vercel 部署预览: [sleepy-vercel.wyf9.top](https://sleepy-vercel.wyf9.top) ![](https://uptime.wyf9.top/api/badge/23/status) ![](https://uptime.wyf9.top/api/badge/23/uptime)
 
@@ -23,6 +23,7 @@ Vercel 部署预览: [sleepy-vercel.wyf9.top](https://sleepy-vercel.wyf9.top) ![
 
 ## Sleepy-Android客户端
 [下载地址](https://github.com/kmizmal/Sleepy-Android/releases/latest)
+[测试版本](https://github.com/kmizmal/Sleepy-Android/tree/main/app/release)
 ![8a3ef6696057c4927cf61117c8a46685](https://img.zmal.top/20250603/8a3ef6696057c4927cf61117c8a46685.39lfd0jgs5.jpg)
 
 根据你在 _**服务端**_ 中的配置对号入座~~自适应~~填写，注意

@@ -9,9 +9,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 enum class LogLevel {
-    VERBOSE,DEBUG, INFO, WARNING, ERROR
+    VERBOSE, DEBUG, INFO, WARNING, ERROR
 }
 
 object LogRepository {
@@ -29,8 +32,12 @@ object LogRepository {
             else -> LogLevel.INFO
         }
     }
+
     fun addLog(level: LogLevel, message: String) {
-        if (level >= LogLv) _logs.tryEmit("[$level] $message")
+        val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+        val currentTime = timeFormat.format(Date())
+
+        if (level >= LogLv) _logs.tryEmit("[$level]-[$currentTime] $message")
     }
 }
 
