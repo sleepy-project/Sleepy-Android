@@ -241,12 +241,21 @@ fun ConfigInputSection(
 ) {
     val scrollState = rememberScrollState()
 
-    var serverUrl by remember { mutableStateOf(initialConfig["server_url"] ?: "") }
-    var secret by remember { mutableStateOf(initialConfig["secret"] ?: "") }
+    var serverUrl by remember { mutableStateOf("") }
+    var secret by remember { mutableStateOf("") }
+    var id by remember { mutableStateOf("") }
+    var showName by remember { mutableStateOf("") }
+    var logLevel by remember { mutableStateOf("INFO") }
+
+    LaunchedEffect(initialConfig) {
+        serverUrl = initialConfig["server_url"] ?: ""
+        secret = initialConfig["secret"] ?: ""
+        id = initialConfig["id"] ?: ""
+        showName = initialConfig["show_name"] ?: ""
+        logLevel = initialConfig["LogLevel"] ?: "INFO"
+    }
+
     var secretVisible by remember { mutableStateOf(false) }
-    var id by remember { mutableStateOf(initialConfig["id"] ?: "") }
-    var showName by remember { mutableStateOf(initialConfig["show_name"] ?: "") }
-    var logLevel by remember { mutableStateOf(initialConfig["LogLevel"] ?: "INFO") }
     var isEditing by remember { mutableStateOf(false) }
     val logLevels = listOf("VERBOSE", "DEBUG", "INFO", "WARNING", "ERROR")
 
@@ -396,6 +405,7 @@ fun loadConfig(sharedPreferences: SharedPreferences, liveData: MutableLiveData<M
         "LogLevel" to (sharedPreferences.getString("LogLevel", "INFO") ?: "INFO")
     )
     liveData.postValue(configMap)
+    LogRepository.setLogLevel(configMap["LogLevel"] ?: "INFO")
 }
 
 fun saveConfig(sharedPreferences: SharedPreferences, url: String, secret: String, id: String, showName: String, logLevel: String) {
@@ -405,6 +415,6 @@ fun saveConfig(sharedPreferences: SharedPreferences, url: String, secret: String
         putString("id", id)
         putString("show_name", showName)
         putString("LogLevel", logLevel)
-        apply()
+        commit()
     }
 }

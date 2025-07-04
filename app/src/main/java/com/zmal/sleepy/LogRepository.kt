@@ -18,6 +18,17 @@ object LogRepository {
     private val _logs = MutableSharedFlow<String>(replay = 30)
     val logs = _logs.asSharedFlow()
     var LogLv = LogLevel.INFO
+        private set
+
+    fun setLogLevel(level: String) {
+        LogLv = when (level.uppercase()) {
+            "VERBOSE" -> LogLevel.VERBOSE
+            "DEBUG" -> LogLevel.DEBUG
+            "WARNING" -> LogLevel.WARNING
+            "ERROR" -> LogLevel.ERROR
+            else -> LogLevel.INFO
+        }
+    }
     fun addLog(level: LogLevel, message: String) {
         if (level >= LogLv) _logs.tryEmit("[$level] $message")
     }
