@@ -47,9 +47,7 @@ class KeepAliveService : Service() {
 
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
-            CHANNEL_ID,
-            CHANNEL_NAME,
-            NotificationManager.IMPORTANCE_LOW
+            CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW
         ).apply {
             description = CHANNEL_DESC
         }
@@ -61,18 +59,12 @@ class KeepAliveService : Service() {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            launchIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            this, 0, launchIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Sleepy后台服务")
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setContentIntent(pendingIntent)
-            .build()
+        return NotificationCompat.Builder(this, CHANNEL_ID).setContentTitle("Sleepy后台服务")
+            .setSmallIcon(R.mipmap.ic_launcher).setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentIntent(pendingIntent).build()
     }
 }
 

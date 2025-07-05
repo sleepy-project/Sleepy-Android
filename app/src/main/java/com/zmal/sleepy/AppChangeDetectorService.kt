@@ -126,7 +126,7 @@ class AppChangeDetectorService : AccessibilityService() {
             UsageStatsManager.INTERVAL_DAILY, time - 60 * 1000, time
         )
         if (stats == null || stats.isEmpty()) {
-            logs(LogLevel.WARNING, "UsageStats 返回为空，无法判断前台应用")
+            logs(LogLevel.WARN, "UsageStats 返回为空，无法判断前台应用")
             return null
         }
         var recentStat: UsageStats? = null
@@ -240,27 +240,45 @@ class AppChangeDetectorService : AccessibilityService() {
         val appInfo = packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
         packageManager.getApplicationLabel(appInfo).toString()
     } catch (e: Exception) {
-        logs(LogLevel.WARNING, "获取应用名失败: ${e.message ?: "未知错误"}")
+        logs(LogLevel.WARN, "获取应用名失败: ${e.message ?: "未知错误"}")
         packageName
     }
 
     private inner class ServerCallback : Callback {
         override fun onFailure(call: Call, e: IOException) {
             logs(LogLevel.ERROR, "发送失败: ${e.message}")
+//            logs(LogLevel.DEBUG, "失败堆栈: ${Log.getStackTraceString(e)}")
+            logs(LogLevel.DEBUG, "请求信息: ${call.request().method} ${call.request().url}")
         }
 
         override fun onResponse(call: Call, response: Response) {
+            logs(LogLevel.DEBUG, "收到响应: ${response.code} ${response.message}")
+            logs(LogLevel.DEBUG, "请求信息: ${call.request().method} ${call.request().url}")
+
             response.use {
+                val bodyStr = try {
+                    response.body?.string().orEmpty()
+                } catch (e: Exception) {
+                    logs(LogLevel.ERROR, "读取响应体失败: ${e.message}")
+                    ""
+                }
+
                 when {
-                    response.isSuccessful && response.code == 200 -> Unit
-                    response.isSuccessful -> logs(LogLevel.DEBUG, "非预期响应: ${response.code}")
-                    else -> logs(
-                        LogLevel.ERROR, "服务器错误: ${response.code} - ${response.message}"
-                    )
+                    response.isSuccessful && response.code == 200 -> {
+                        logs(LogLevel.INFO, "请求成功，响应内容: $bodyStr")
+                    }
+                    response.isSuccessful -> {
+                        logs(LogLevel.WARN, "非预期响应: ${response.code}，内容: $bodyStr")
+                    }
+                    else -> {
+                        logs(LogLevel.ERROR, "服务器错误: ${response.code} - ${response.message}")
+                        logs(LogLevel.ERROR, "响应内容: $bodyStr")
+                    }
                 }
             }
         }
     }
+
 
     private fun logs(level: LogLevel, msg: String) = LogRepository.addLog(level, msg)
 

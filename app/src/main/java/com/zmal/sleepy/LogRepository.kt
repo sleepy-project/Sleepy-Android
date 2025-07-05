@@ -14,7 +14,7 @@ import java.util.Date
 import java.util.Locale
 
 enum class LogLevel {
-    VERBOSE, DEBUG, INFO, WARNING, ERROR
+    VERBOSE, DEBUG, INFO, WARN, ERROR
 }
 
 object LogRepository {
@@ -27,7 +27,7 @@ object LogRepository {
         LogLv = when (level.uppercase()) {
             "VERBOSE" -> LogLevel.VERBOSE
             "DEBUG" -> LogLevel.DEBUG
-            "WARNING" -> LogLevel.WARNING
+            "WARN" -> LogLevel.WARN
             "ERROR" -> LogLevel.ERROR
             else -> LogLevel.INFO
         }
