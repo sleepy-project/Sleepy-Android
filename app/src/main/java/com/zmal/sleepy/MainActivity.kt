@@ -78,8 +78,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        requestBatteryOptimizationIfNeeded()
         requestNotificationPermissionIfNeeded()
+        requestBatteryOptimizationIfNeeded()
         requestUsageStatsPermissionIfNeeded()
         checkAccessibilityServiceEnabled()
 
@@ -138,7 +138,6 @@ class MainActivity : ComponentActivity() {
             })
         }
     }
-
 }
 
 @Composable
@@ -224,6 +223,7 @@ fun MainScreen() {
                 initialConfig = config, onSave = { url, secret, id, name, logLevel ->
                     saveConfig(sharedPreferences, url, secret, id, name, logLevel)
                     loadConfig(sharedPreferences, configLiveData)
+                    AppChangeDetectorService.cachedConfig=null
                     LogRepository.addLog(LogLevel.INFO, "配置已保存")
                     Toast.makeText(context, "配置已保存", Toast.LENGTH_SHORT).show()
                 })

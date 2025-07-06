@@ -31,10 +31,11 @@ class AppChangeDetectorService : AccessibilityService() {
         private const val CONFIG_NAME = "config"
         private const val JSON_MIME = "application/json"
         private const val USER_AGENT = "Sleep-Android"
-
+        var cachedConfig: Config? = null
         val httpClient: OkHttpClient by lazy {
             OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS)
-                .readTimeout(10, TimeUnit.SECONDS).build()
+                .readTimeout(10, TimeUnit.SECONDS).retryOnConnectionFailure(true)
+                .build()
         }
 
         @Volatile
@@ -47,7 +48,7 @@ class AppChangeDetectorService : AccessibilityService() {
         var batteryPct: Int? = null
     }
 
-    private data class Config(
+    data class Config(
         val url: String, val secret: String, val id: String, val showName: String
     )
 
@@ -83,14 +84,14 @@ class AppChangeDetectorService : AccessibilityService() {
 
         val realPkg = getForegroundApp(this)
         logs(LogLevel.VERBOSE, "getForegroundApp: ${realPkg ?: "null"}")
+        val pkgName = realPkg ?: event.packageName?.toString()
 
-        if (realPkg == lastPackageName) {
-            logs(LogLevel.VERBOSE, "包名未变，无需处理: $realPkg")
+        if (pkgName == lastPackageName && isUsing == !(getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) {
+            logs(LogLevel.DEBUG, "已忽略: $pkgName，$isUsing")
             return
         }
 
-        val pkgName = realPkg ?: event.packageName?.toString()
-        logs(LogLevel.DEBUG, "处理包名: $pkgName，类名：${event.className}")
+        logs(LogLevel.VERBOSE, "处理包名: $pkgName，类名：${event.className}")
 
         pkgName?.takeIf { it.isNotEmpty() }?.let { packageName ->
             handlePackageChange(packageName)
@@ -145,10 +146,6 @@ class AppChangeDetectorService : AccessibilityService() {
         }
 
         val resolvedAppName = resolveAppName(packageName)
-        if (packageName == lastPackageName) {
-            logs(LogLevel.VERBOSE, "重复包名，已忽略: $packageName")
-            return
-        }
 
         reportRunnable?.let { handler.removeCallbacks(it) }
         lastPackageName = packageName
@@ -157,7 +154,8 @@ class AppChangeDetectorService : AccessibilityService() {
             lastSentTime = System.currentTimeMillis()
             updateDeviceState()
             pendingAppName = resolvedAppName
-            logAppSwitch()
+            logs(LogLevel.DEBUG,"亮屏:$isUsing")
+            logs(LogLevel.INFO, "$pendingAppName")
             sendToServer(resolvedAppName)
         }
         handler.postDelayed(reportRunnable!!, REPORT_DELAY_MS)
@@ -182,12 +180,10 @@ class AppChangeDetectorService : AccessibilityService() {
         }
     }
 
-    private fun logAppSwitch() {
-        logs(LogLevel.INFO, "$pendingAppName")
-    }
 
     private fun updateDeviceState() {
         isUsing = !(getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked
+        logs(LogLevel.VERBOSE, "亮屏：$isUsing")
         val bm = getSystemService(BATTERY_SERVICE) as? BatteryManager
         val chargingStatus = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_STATUS)
         isCharging =
@@ -212,12 +208,17 @@ class AppChangeDetectorService : AccessibilityService() {
         httpClient.newCall(request).enqueue(ServerCallback())
     }
 
-    private fun getConfigValues(): Config? = getSharedPreferences(CONFIG_NAME, MODE_PRIVATE).run {
-        val url = getString("server_url", null) ?: return null
-        val secret = getString("secret", null) ?: return null
-        val id = getString("id", null) ?: return null
-        val showName = getString("show_name", null) ?: return null
-        Config(url, secret, id, showName)
+    private fun getConfigValues(): Config? {
+        if (cachedConfig == null) {
+            getSharedPreferences(CONFIG_NAME, MODE_PRIVATE).run {
+                val url = getString("server_url", null) ?: return null
+                val secret = getString("secret", null) ?: return null
+                val id = getString("id", null) ?: return null
+                val showName = getString("show_name", null) ?: return null
+                cachedConfig = Config(url, secret, id, showName)
+            }
+        }
+        return cachedConfig
     }
 
     private fun createRequestBody(
@@ -248,12 +249,12 @@ class AppChangeDetectorService : AccessibilityService() {
         override fun onFailure(call: Call, e: IOException) {
             logs(LogLevel.ERROR, "发送失败: ${e.message}")
 //            logs(LogLevel.DEBUG, "失败堆栈: ${Log.getStackTraceString(e)}")
-            logs(LogLevel.DEBUG, "请求信息: ${call.request().method} ${call.request().url}")
+            logs(LogLevel.VERBOSE, "请求信息: ${call.request().method} ${call.request().url}")
         }
 
         override fun onResponse(call: Call, response: Response) {
-            logs(LogLevel.DEBUG, "收到响应: ${response.code} ${response.message}")
-            logs(LogLevel.DEBUG, "请求信息: ${call.request().method} ${call.request().url}")
+            logs(LogLevel.VERBOSE, "收到响应: ${response.code} ${response.message}")
+            logs(LogLevel.VERBOSE, "请求信息: ${call.request().method} ${call.request().url}")
 
             response.use {
                 val bodyStr = try {
@@ -265,11 +266,13 @@ class AppChangeDetectorService : AccessibilityService() {
 
                 when {
                     response.isSuccessful && response.code == 200 -> {
-                        logs(LogLevel.INFO, "请求成功，响应内容: $bodyStr")
+                        logs(LogLevel.VERBOSE, "请求成功，响应内容: $bodyStr")
                     }
+
                     response.isSuccessful -> {
                         logs(LogLevel.WARN, "非预期响应: ${response.code}，内容: $bodyStr")
                     }
+
                     else -> {
                         logs(LogLevel.ERROR, "服务器错误: ${response.code} - ${response.message}")
                         logs(LogLevel.ERROR, "响应内容: $bodyStr")
