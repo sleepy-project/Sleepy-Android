@@ -3,7 +3,6 @@ package com.zmal.sleepy
 
 import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
-import android.app.AppOpsManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -80,7 +79,6 @@ class MainActivity : ComponentActivity() {
 
         requestNotificationPermissionIfNeeded()
         requestBatteryOptimizationIfNeeded()
-        requestUsageStatsPermissionIfNeeded()
         checkAccessibilityServiceEnabled()
 
         setContent {
@@ -111,21 +109,6 @@ class MainActivity : ComponentActivity() {
                     this, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001
                 )
             }
-        }
-    }
-
-    private fun requestUsageStatsPermissionIfNeeded() {
-        val appOps = getSystemService(APP_OPS_SERVICE) as AppOpsManager
-        val mode = appOps.checkOpNoThrow(
-            AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), packageName
-        )
-
-        if (mode != AppOpsManager.MODE_ALLOWED) {
-            val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
-                data = "package:$packageName".toUri()
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            startActivity(intent)
         }
     }
 

@@ -3,9 +3,6 @@ package com.zmal.sleepy
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.KeyguardManager
-import android.app.usage.UsageStats
-import android.app.usage.UsageStatsManager
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.BatteryManager
@@ -31,11 +28,12 @@ class AppChangeDetectorService : AccessibilityService() {
         private const val CONFIG_NAME = "config"
         private const val JSON_MIME = "application/json"
         private const val USER_AGENT = "Sleep-Android"
+
         var cachedConfig: Config? = null
+
         val httpClient: OkHttpClient by lazy {
             OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS)
-                .readTimeout(10, TimeUnit.SECONDS).retryOnConnectionFailure(true)
-                .build()
+                .readTimeout(10, TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
         }
 
         @Volatile
@@ -54,8 +52,6 @@ class AppChangeDetectorService : AccessibilityService() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var reportRunnable: Runnable? = null
-    private var lastSentTime = 0L
-    private var pendingAppName: String? = null
     private var isUsing = true
     private var isCharging = false
     private lateinit var keepAliveIntent: Intent
@@ -74,7 +70,7 @@ class AppChangeDetectorService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || event.className == "android.widget.FrameLayout") {
+        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || event.className == "android.widget.FrameLayout" || event.className == "android.widget.ScrollView") {
             logs(
                 LogLevel.VERBOSE,
                 "忽略无关事件: eventType=${event.eventType}, className=${event.className}"
@@ -82,16 +78,18 @@ class AppChangeDetectorService : AccessibilityService() {
             return
         }
 
-        val realPkg = getForegroundApp(this)
-        logs(LogLevel.VERBOSE, "getForegroundApp: ${realPkg ?: "null"}")
-        val pkgName = realPkg ?: event.packageName?.toString()
+        val pkgName = event.packageName?.toString()
+        val currentIsUsing =
+            !(getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked
 
-        if (pkgName == lastPackageName && isUsing == !(getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked) {
-            logs(LogLevel.DEBUG, "已忽略: $pkgName，$isUsing")
+        if (pkgName == lastPackageName && isUsing == currentIsUsing) {
+            logs(LogLevel.VERBOSE, "已忽略: $pkgName，isUsing未变=$isUsing")
             return
         }
 
-        logs(LogLevel.VERBOSE, "处理包名: $pkgName，类名：${event.className}")
+        isUsing = currentIsUsing
+
+        logs(LogLevel.DEBUG, "处理包名: $pkgName，类名：${event.className}")
 
         pkgName?.takeIf { it.isNotEmpty() }?.let { packageName ->
             handlePackageChange(packageName)
@@ -115,51 +113,11 @@ class AppChangeDetectorService : AccessibilityService() {
     }
 
     override fun onDestroy() {
-        onUnbind(null)
+        reportRunnable?.let { handler.removeCallbacks(it) }
+        stopService(keepAliveIntent)
         logs(LogLevel.DEBUG, "无障碍服务已销毁")
         super.onDestroy()
     }
-
-    fun getForegroundApp(context: Context): String? {
-        val usm = context.getSystemService(USAGE_STATS_SERVICE) as UsageStatsManager
-        val time = System.currentTimeMillis()
-        val stats = usm.queryUsageStats(
-            UsageStatsManager.INTERVAL_DAILY, time - 60 * 1000, time
-        )
-        if (stats == null || stats.isEmpty()) {
-            logs(LogLevel.WARN, "UsageStats 返回为空，无法判断前台应用")
-            return null
-        }
-        var recentStat: UsageStats? = null
-        for (usageStats in stats) {
-            if (recentStat == null || usageStats.lastTimeUsed > recentStat.lastTimeUsed) {
-                recentStat = usageStats
-            }
-        }
-        return recentStat?.packageName
-    }
-
-//    private fun handlePackageChange(packageName: String) {
-//        if (isInputMethod(packageName)) {
-//            logs(LogLevel.VERBOSE, "忽略输入法包名: $packageName")
-//            return
-//        }
-//
-//        val resolvedAppName = resolveAppName(packageName)
-//
-//        reportRunnable?.let { handler.removeCallbacks(it) }
-//        lastPackageName = packageName
-//
-//        reportRunnable = Runnable {
-//            lastSentTime = System.currentTimeMillis()
-//            updateDeviceState()
-//            pendingAppName = resolvedAppName
-//            logs(LogLevel.DEBUG,"亮屏:$isUsing")
-//            logs(LogLevel.INFO, "$pendingAppName")
-//            sendToServer(resolvedAppName)
-//        }
-//        handler.postDelayed(reportRunnable!!, REPORT_DELAY_MS)
-//    }
 
     private fun handlePackageChange(packageName: String) {
         if (isInputMethod(packageName)) {
@@ -167,31 +125,34 @@ class AppChangeDetectorService : AccessibilityService() {
             return
         }
 
-        val resolvedAppName = resolveAppName(packageName)
-
         reportRunnable?.let {
-            logs(LogLevel.DEBUG, "移除旧任务，取消上报: $lastPackageName")
+            logs(LogLevel.DEBUG, "取消: $lastPackageName;替换: $packageName")
             handler.removeCallbacks(it)
         }
 
         lastPackageName = packageName
-        val scheduledTime = System.currentTimeMillis() + REPORT_DELAY_MS
 
         reportRunnable = Runnable {
-            val now = System.currentTimeMillis()
-            logs(LogLevel.DEBUG, "Runnable 执行时间: $now，延迟了 ${now - scheduledTime + REPORT_DELAY_MS} ms")
-            lastSentTime = now
+            val resolvedAppName = resolveAppName(packageName)
             updateDeviceState()
-            pendingAppName = resolvedAppName
-            logs(LogLevel.DEBUG, "亮屏:$isUsing")
-            logs(LogLevel.INFO, "即将上报: $pendingAppName")
+            logs(LogLevel.VERBOSE, "亮屏:$isUsing")
             sendToServer(resolvedAppName)
+            reportRunnable = null
         }
-
-        logs(LogLevel.DEBUG, "安排新上报任务: $packageName，计划时间: $scheduledTime")
         handler.postDelayed(reportRunnable!!, REPORT_DELAY_MS)
     }
 
+    private fun updateDeviceState() {
+        val bm = getSystemService(BATTERY_SERVICE) as? BatteryManager
+        val chargingStatus = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_STATUS)
+        isCharging =
+            chargingStatus == BatteryManager.BATTERY_STATUS_CHARGING || chargingStatus == BatteryManager.BATTERY_STATUS_FULL
+        batteryPct = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+        logs(
+            LogLevel.VERBOSE,
+            "设备状态 - isUsing=$isUsing, isCharging=$isCharging, batteryPct=$batteryPct"
+        )
+    }
 
     private fun resolveAppName(packageName: String): String {
         val appName = getAppName(packageName)
@@ -212,21 +173,6 @@ class AppChangeDetectorService : AccessibilityService() {
         }
     }
 
-
-    private fun updateDeviceState() {
-        isUsing = !(getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked
-        logs(LogLevel.VERBOSE, "亮屏：$isUsing")
-        val bm = getSystemService(BATTERY_SERVICE) as? BatteryManager
-        val chargingStatus = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_STATUS)
-        isCharging =
-            chargingStatus == BatteryManager.BATTERY_STATUS_CHARGING || chargingStatus == BatteryManager.BATTERY_STATUS_FULL
-        batteryPct = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
-        logs(
-            LogLevel.VERBOSE,
-            "设备状态 - isUsing=$isUsing, isCharging=$isCharging, batteryPct=$batteryPct"
-        )
-    }
-
     private fun sendToServer(appName: String) {
         val config = getConfigValues() ?: run {
             logs(LogLevel.ERROR, "配置参数不完整")
@@ -236,6 +182,7 @@ class AppChangeDetectorService : AccessibilityService() {
         val request = Request.Builder().url(config.url)
             .post(createRequestBody(appName, config.secret, config.id, config.showName))
             .addHeader("User-Agent", USER_AGENT).build()
+        logs(LogLevel.INFO, appName)
 
         httpClient.newCall(request).enqueue(ServerCallback())
     }
@@ -277,16 +224,24 @@ class AppChangeDetectorService : AccessibilityService() {
         packageName
     }
 
+    private fun startKeepAliveService() {
+        if (::keepAliveIntent.isInitialized) {
+            try {
+                startForegroundService(keepAliveIntent)
+            } catch (e: Exception) {
+                logs(LogLevel.INFO, "无法启动保活服务: ${e.message}")
+            }
+        }
+    }
+
     private inner class ServerCallback : Callback {
         override fun onFailure(call: Call, e: IOException) {
             logs(LogLevel.ERROR, "发送失败: ${e.message}")
-//            logs(LogLevel.DEBUG, "失败堆栈: ${Log.getStackTraceString(e)}")
             logs(LogLevel.VERBOSE, "请求信息: ${call.request().method} ${call.request().url}")
         }
 
         override fun onResponse(call: Call, response: Response) {
             logs(LogLevel.VERBOSE, "收到响应: ${response.code} ${response.message}")
-            logs(LogLevel.VERBOSE, "请求信息: ${call.request().method} ${call.request().url}")
 
             response.use {
                 val bodyStr = try {
@@ -298,10 +253,9 @@ class AppChangeDetectorService : AccessibilityService() {
 
                 when {
                     response.isSuccessful && response.code == 200 -> {
-                        logs(LogLevel.VERBOSE, "请求成功，响应内容: $bodyStr")
                     }
 
-                    response.isSuccessful -> {
+                    response.isSuccessful && response.code != 200 -> {
                         logs(LogLevel.WARN, "非预期响应: ${response.code}，内容: $bodyStr")
                     }
 
@@ -314,16 +268,5 @@ class AppChangeDetectorService : AccessibilityService() {
         }
     }
 
-
     private fun logs(level: LogLevel, msg: String) = LogRepository.addLog(level, msg)
-
-    private fun startKeepAliveService() {
-        if (::keepAliveIntent.isInitialized) {
-            try {
-                startForegroundService(keepAliveIntent)
-            } catch (e: Exception) {
-                logs(LogLevel.INFO, "无法启动保活服务: ${e.message}")
-            }
-        }
-    }
 }
