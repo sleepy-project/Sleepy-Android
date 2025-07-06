@@ -139,6 +139,28 @@ class AppChangeDetectorService : AccessibilityService() {
         return recentStat?.packageName
     }
 
+//    private fun handlePackageChange(packageName: String) {
+//        if (isInputMethod(packageName)) {
+//            logs(LogLevel.VERBOSE, "忽略输入法包名: $packageName")
+//            return
+//        }
+//
+//        val resolvedAppName = resolveAppName(packageName)
+//
+//        reportRunnable?.let { handler.removeCallbacks(it) }
+//        lastPackageName = packageName
+//
+//        reportRunnable = Runnable {
+//            lastSentTime = System.currentTimeMillis()
+//            updateDeviceState()
+//            pendingAppName = resolvedAppName
+//            logs(LogLevel.DEBUG,"亮屏:$isUsing")
+//            logs(LogLevel.INFO, "$pendingAppName")
+//            sendToServer(resolvedAppName)
+//        }
+//        handler.postDelayed(reportRunnable!!, REPORT_DELAY_MS)
+//    }
+
     private fun handlePackageChange(packageName: String) {
         if (isInputMethod(packageName)) {
             logs(LogLevel.VERBOSE, "忽略输入法包名: $packageName")
@@ -147,19 +169,29 @@ class AppChangeDetectorService : AccessibilityService() {
 
         val resolvedAppName = resolveAppName(packageName)
 
-        reportRunnable?.let { handler.removeCallbacks(it) }
+        reportRunnable?.let {
+            logs(LogLevel.DEBUG, "移除旧任务，取消上报: $lastPackageName")
+            handler.removeCallbacks(it)
+        }
+
         lastPackageName = packageName
+        val scheduledTime = System.currentTimeMillis() + REPORT_DELAY_MS
 
         reportRunnable = Runnable {
-            lastSentTime = System.currentTimeMillis()
+            val now = System.currentTimeMillis()
+            logs(LogLevel.DEBUG, "Runnable 执行时间: $now，延迟了 ${now - scheduledTime + REPORT_DELAY_MS} ms")
+            lastSentTime = now
             updateDeviceState()
             pendingAppName = resolvedAppName
-            logs(LogLevel.DEBUG,"亮屏:$isUsing")
-            logs(LogLevel.INFO, "$pendingAppName")
+            logs(LogLevel.DEBUG, "亮屏:$isUsing")
+            logs(LogLevel.INFO, "即将上报: $pendingAppName")
             sendToServer(resolvedAppName)
         }
+
+        logs(LogLevel.DEBUG, "安排新上报任务: $packageName，计划时间: $scheduledTime")
         handler.postDelayed(reportRunnable!!, REPORT_DELAY_MS)
     }
+
 
     private fun resolveAppName(packageName: String): String {
         val appName = getAppName(packageName)
