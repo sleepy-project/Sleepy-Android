@@ -70,7 +70,18 @@ class AppChangeDetectorService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || event.className == "android.widget.FrameLayout" || event.className == "android.widget.ScrollView") {
+        val ignoredClassNames = setOf(
+            "android.widget.FrameLayout",
+            "android.widget.ScrollView",
+            "android.widget.LinearLayout",
+            "android.view.View",
+            "android.view.ViewGroup",
+            "com.android.internal.policy.DecorView" // 系统窗口容器
+        )
+
+        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+            event.className in ignoredClassNames
+        ) {
             logs(
                 LogLevel.VERBOSE,
                 "忽略无关事件: eventType=${event.eventType}, className=${event.className}"
@@ -89,7 +100,7 @@ class AppChangeDetectorService : AccessibilityService() {
 
         isUsing = currentIsUsing
 
-        logs(LogLevel.DEBUG, "处理包名: $pkgName，类名：${event.className}")
+        logs(LogLevel.DEBUG, "处理包名: $pkgName，类名：${event.className}，亮屏：${isUsing}")
 
         pkgName?.takeIf { it.isNotEmpty() }?.let { packageName ->
             handlePackageChange(packageName)
@@ -182,7 +193,7 @@ class AppChangeDetectorService : AccessibilityService() {
         val request = Request.Builder().url(config.url)
             .post(createRequestBody(appName, config.secret, config.id, config.showName))
             .addHeader("User-Agent", USER_AGENT).build()
-        logs(LogLevel.INFO, appName)
+        logs(LogLevel.INFO, "${appName}[${isUsing}]")
 
         httpClient.newCall(request).enqueue(ServerCallback())
     }
