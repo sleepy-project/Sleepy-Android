@@ -64,6 +64,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -90,37 +91,35 @@ class MainActivity : ComponentActivity() {
 
     @SuppressLint("BatteryLife")
     private fun requestBatteryOptimizationIfNeeded() {
-        val powerManager = getSystemService(POWER_SERVICE) as? PowerManager
-        if (powerManager != null && !powerManager.isIgnoringBatteryOptimizations(packageName)) {
-            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+        val powerManager = getSystemService(POWER_SERVICE) as? PowerManager ?: return
+        if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                 data = "package:$packageName".toUri()
-            }
-            startActivity(intent)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }.also { startActivity(it) }
         }
     }
 
     private fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(
-                    this, android.Manifest.permission.POST_NOTIFICATIONS
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                ActivityCompat.requestPermissions(
-                    this, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001
-                )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            arrayOf(android.Manifest.permission.POST_NOTIFICATIONS).also {
+                ActivityCompat.requestPermissions(this, it, 1001)
             }
         }
     }
 
     private fun checkAccessibilityServiceEnabled() {
-        val enabled = isAccessibilityServiceEnabled(this, AppChangeDetectorService::class.java)
-        if (!enabled) {
+        if (!isAccessibilityServiceEnabled(this, AppChangeDetectorService::class.java)) {
             Toast.makeText(this, "无障碍权限未开启", Toast.LENGTH_LONG).show()
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            })
+            }.also { startActivity(it) }
         }
     }
+
 }
 
 @Composable
@@ -131,17 +130,19 @@ fun MainScreen() {
     val configLiveData = remember { MutableLiveData<Map<String, String>>() }
     val logViewModel: LogViewModel = viewModel()
     val logs by logViewModel.logs.collectAsState(emptyList())
+
     val accessibilityEnabled = remember { mutableStateOf(false) }
     val batteryOptimizationIgnored = remember { mutableStateOf(false) }
 
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+
+    // 初始化与生命周期监听
     LaunchedEffect(Unit) {
         loadConfig(sharedPreferences, configLiveData)
         accessibilityEnabled.value =
             isAccessibilityServiceEnabled(context, AppChangeDetectorService::class.java)
         batteryOptimizationIgnored.value = isIgnoringBatteryOptimizations(context)
     }
-
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -156,19 +157,17 @@ fun MainScreen() {
 
     val config by configLiveData.observeAsState(emptyMap())
 
-    val versionName = run {
-        val pm = context.packageManager
-        val pkg = context.packageName
-        try {
-            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) pm.getPackageInfo(
-                pkg,
-                PackageManager.PackageInfoFlags.of(0)
-            )
-            else @Suppress("DEPRECATION") pm.getPackageInfo(pkg, 0)
+    val versionName = remember {
+        runCatching {
+            val pm = context.packageManager
+            val pkg = context.packageName
+            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getPackageInfo(pkg, PackageManager.PackageInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION") pm.getPackageInfo(pkg, 0)
+            }
             "v${info.versionName}(${info.longVersionCode})"
-        } catch (_: Exception) {
-            "N/A"
-        }
+        }.getOrDefault("N/A")
     }
 
     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
@@ -181,7 +180,7 @@ fun MainScreen() {
         ) {
             Text("sleepy Android client", style = MaterialTheme.typography.titleLarge)
             Text(
-                text = versionName,
+                versionName,
                 color = Color(211, 193, 250),
                 modifier = Modifier
                     .padding(vertical = 8.dp)
@@ -193,59 +192,56 @@ fun MainScreen() {
                             )
                         )
                     })
-
             StatusIndicatorSection(
                 accessibilityEnabled = accessibilityEnabled.value,
                 batteryOptimizationIgnored = batteryOptimizationIgnored.value,
                 context = context
             )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            ConfigInputSection(
-                initialConfig = config, onSave = { url, secret, id, name, logLevel ->
-                    saveConfig(sharedPreferences, url, secret, id, name, logLevel)
-                    loadConfig(sharedPreferences, configLiveData)
-                    AppChangeDetectorService.cachedConfig=null
-                    LogRepository.addLog(LogLevel.INFO, "配置已保存")
-                    Toast.makeText(context, "配置已保存", Toast.LENGTH_SHORT).show()
-                })
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            LogDisplaySection(logs = logs)
+            Spacer(Modifier.height(24.dp))
+            ConfigInputSection(config) { url, secret, id, name, logLevel ->
+                saveConfig(sharedPreferences, url, secret, id, name, logLevel)
+                loadConfig(sharedPreferences, configLiveData)
+                AppChangeDetectorService.cachedConfig = null
+                LogRepository.addLog(LogLevel.INFO, "配置已保存")
+                Toast.makeText(context, "配置已保存", Toast.LENGTH_SHORT).show()
+            }
+            Spacer(Modifier.height(24.dp))
+            LogDisplaySection(logs)
         }
     }
 }
+
 
 @Composable
 fun StatusIndicatorSection(
     accessibilityEnabled: Boolean, batteryOptimizationIgnored: Boolean, context: Context
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        if (!accessibilityEnabled) {
+        if (!accessibilityEnabled || !batteryOptimizationIgnored) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("无障碍服务", color = MaterialTheme.colorScheme.error)
-                Spacer(modifier = Modifier.width(12.dp))
-                Button(
-                    onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
-                    modifier = Modifier.height(36.dp)
-                ) { Text("去开启") }
-            }
-        }
-
-        if (!batteryOptimizationIgnored) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("电池优化", color = MaterialTheme.colorScheme.error)
-                Spacer(modifier = Modifier.width(12.dp))
-                Button(
-                    onClick = { requestIgnoreBatteryOptimization(context) },
-                    modifier = Modifier.height(36.dp)
-                ) { Text("去忽略") }
+                if (!accessibilityEnabled) {
+                    Text("无障碍服务", color = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.width(12.dp))
+                    Button(
+                        onClick = {
+                            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                        }, modifier = Modifier.height(36.dp)
+                    ) { Text("去开启") }
+                }
+                if (!batteryOptimizationIgnored) {
+                    Spacer(Modifier.width(24.dp))
+                    Text("电池优化", color = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.width(12.dp))
+                    Button(
+                        onClick = { requestIgnoreBatteryOptimization(context) },
+                        modifier = Modifier.height(36.dp)
+                    ) { Text("去忽略") }
+                }
             }
         }
     }
 }
+
 
 @Composable
 fun ConfigInputSection(
@@ -258,22 +254,32 @@ fun ConfigInputSection(
     var id by remember { mutableStateOf("") }
     var showName by remember { mutableStateOf("") }
     var logLevel by remember { mutableStateOf("INFO") }
-
-    LaunchedEffect(initialConfig) {
-        serverUrl = initialConfig["server_url"] ?: ""
-        secret = initialConfig["secret"] ?: ""
-        id = initialConfig["id"] ?: ""
-        showName = initialConfig["show_name"] ?: ""
-        logLevel = initialConfig["LogLevel"] ?: "INFO"
-    }
-
     var secretVisible by remember { mutableStateOf(false) }
     var isEditing by remember { mutableStateOf(false) }
     val logLevels = listOf("VERBOSE", "DEBUG", "INFO", "WARN", "ERROR")
 
+    // 初始化或恢复配置
+    LaunchedEffect(initialConfig) {
+        serverUrl = initialConfig["server_url"].orEmpty()
+        secret = initialConfig["secret"].orEmpty()
+        id = initialConfig["id"].orEmpty()
+        showName = initialConfig["show_name"].orEmpty()
+        logLevel = initialConfig["LogLevel"] ?: "INFO"
+    }
+
+    BackHandler(enabled = isEditing) {
+        // 恢复初始配置并退出编辑
+        serverUrl = initialConfig["server_url"].orEmpty()
+        secret = initialConfig["secret"].orEmpty()
+        id = initialConfig["id"].orEmpty()
+        showName = initialConfig["show_name"].orEmpty()
+        logLevel = initialConfig["LogLevel"] ?: "INFO"
+        isEditing = false
+    }
+
     Column(modifier = Modifier.verticalScroll(scrollState)) {
         Text("服务配置", style = MaterialTheme.typography.titleMedium)
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(Modifier.height(8.dp))
 
         OutlinedTextField(
             value = serverUrl,
@@ -284,18 +290,9 @@ fun ConfigInputSection(
             enabled = isEditing
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(Modifier.height(8.dp))
 
         if (isEditing) {
-            BackHandler {
-                // 恢复为初始配置
-                serverUrl = initialConfig["server_url"] ?: ""
-                secret = initialConfig["secret"] ?: ""
-                id = initialConfig["id"] ?: ""
-                showName = initialConfig["show_name"] ?: ""
-                logLevel = initialConfig["LogLevel"] ?: "INFO"
-                isEditing = false
-            }
             OutlinedTextField(
                 value = secret,
                 onValueChange = { secret = it },
@@ -309,8 +306,7 @@ fun ConfigInputSection(
                         Icon(icon, contentDescription = "切换可见性")
                     }
                 })
-
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(Modifier.height(8.dp))
 
             OutlinedTextField(
                 value = id,
@@ -320,8 +316,7 @@ fun ConfigInputSection(
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )
-
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(Modifier.height(8.dp))
 
             Text("日志等级", style = MaterialTheme.typography.bodyMedium)
             logLevels.forEach { option ->
@@ -332,15 +327,14 @@ fun ConfigInputSection(
                         .clickable { logLevel = option }
                         .padding(2.dp)) {
                     RadioButton(
-                        selected = (option == logLevel),
+                        selected = option == logLevel,
                         onClick = { logLevel = option },
                         modifier = Modifier.size(25.dp)
                     )
                     Text(option)
                 }
             }
-
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(Modifier.height(12.dp))
         }
 
         OutlinedTextField(
@@ -351,19 +345,15 @@ fun ConfigInputSection(
             singleLine = true,
             enabled = isEditing
         )
-
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(Modifier.height(12.dp))
 
         Button(
             onClick = {
-                if (isEditing) {
-                    onSave(serverUrl, secret, id, showName, logLevel)
-                }
+                if (isEditing) onSave(serverUrl, secret, id, showName, logLevel)
                 isEditing = !isEditing
-            },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !isEditing || (serverUrl.isNotBlank() && secret.isNotBlank() && id.isNotBlank() && showName.isNotBlank())
-        ) {
+            }, modifier = Modifier.fillMaxWidth(), enabled = !isEditing || listOf(
+                serverUrl, secret, id, showName
+            ).all { it.isNotBlank() }) {
             Text(if (isEditing) "保存配置" else "编辑配置")
         }
     }
@@ -435,19 +425,19 @@ fun loadConfig(
 }
 
 fun saveConfig(
-    sharedPreferences: SharedPreferences,
+    sp: SharedPreferences,
     url: String,
     secret: String,
     id: String,
     showName: String,
     logLevel: String
 ) {
-    sharedPreferences.edit().apply {
+    sp.edit {
         putString("server_url", url)
         putString("secret", secret)
         putString("id", id)
         putString("show_name", showName)
         putString("LogLevel", logLevel)
-        commit()
     }
 }
+

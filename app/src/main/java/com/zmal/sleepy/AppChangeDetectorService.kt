@@ -2,12 +2,15 @@ package com.zmal.sleepy
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
-import android.app.KeyguardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.display.DisplayManager
 import android.os.BatteryManager
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import okhttp3.Call
 import okhttp3.Callback
@@ -76,7 +79,7 @@ class AppChangeDetectorService : AccessibilityService() {
             "android.widget.LinearLayout",
             "android.view.View",
             "android.view.ViewGroup",
-            "com.android.internal.policy.DecorView" // 系统窗口容器
+            "com.android.internal.policy.DecorView"
         )
 
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
@@ -90,8 +93,7 @@ class AppChangeDetectorService : AccessibilityService() {
         }
 
         val pkgName = event.packageName?.toString()
-        val currentIsUsing =
-            !(getSystemService(KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked
+        val currentIsUsing = !isScreenOff(this)
 
         if (pkgName == lastPackageName && isUsing == currentIsUsing) {
             logs(LogLevel.VERBOSE, "已忽略: $pkgName，isUsing未变=$isUsing")
@@ -153,17 +155,33 @@ class AppChangeDetectorService : AccessibilityService() {
         handler.postDelayed(reportRunnable!!, REPORT_DELAY_MS)
     }
 
+    fun isScreenOff(context: Context): Boolean {
+        val powerManager = context.getSystemService(POWER_SERVICE) as? PowerManager
+        val displayManager = context.getSystemService(DISPLAY_SERVICE) as? DisplayManager
+        val display = displayManager?.getDisplay(Display.DEFAULT_DISPLAY)
+
+        val isDisplayOff = display?.state == Display.STATE_OFF || display == null
+        val isNonInteractive = powerManager?.isInteractive == false
+
+        return isNonInteractive || isDisplayOff
+    }
+
     private fun updateDeviceState() {
         val bm = getSystemService(BATTERY_SERVICE) as? BatteryManager
-        val chargingStatus = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_STATUS)
-        isCharging =
-            chargingStatus == BatteryManager.BATTERY_STATUS_CHARGING || chargingStatus == BatteryManager.BATTERY_STATUS_FULL
-        batteryPct = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+        val chargingStatus = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_STATUS) ?: -1
+        val battery = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+
+//        isUsing = !isScreenOff(this)
+        isCharging = chargingStatus == BatteryManager.BATTERY_STATUS_CHARGING ||
+                chargingStatus == BatteryManager.BATTERY_STATUS_FULL
+        batteryPct = if (battery in 0..100) battery else -1
+
         logs(
             LogLevel.VERBOSE,
-            "设备状态 - isUsing=$isUsing, isCharging=$isCharging, batteryPct=$batteryPct"
+            "设备状态 -  isCharging=$isCharging, batteryPct=$batteryPct"
         )
     }
+
 
     private fun resolveAppName(packageName: String): String {
         val appName = getAppName(packageName)
