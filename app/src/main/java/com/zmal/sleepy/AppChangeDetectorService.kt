@@ -42,21 +42,24 @@ class AppChangeDetectorService : AccessibilityService() {
         @Volatile
         var lastPackageName: String? = null
 
-        @Volatile
-        var lastAppName: String? = null
-
-        @Volatile
-        var batteryPct: Int? = null
     }
 
     data class Config(
         val url: String, val secret: String, val id: String, val showName: String
     )
 
+
+    data class Status(
+        var isUsing: Boolean,
+        var batteryPct: Int?,
+        var isCharging: Boolean,
+        var appName: String,
+    )
+
+    val status = Status(false, null, false, "")
+
     private val handler = Handler(Looper.getMainLooper())
     private var reportRunnable: Runnable? = null
-    private var isUsing = true
-    private var isCharging = false
     private lateinit var keepAliveIntent: Intent
 
     override fun onServiceConnected() {
@@ -73,40 +76,64 @@ class AppChangeDetectorService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        cachedConfig = getConfigValues() ?: run {
+            logs(LogLevel.ERROR, "配置参数不完整")
+            return
+        }
         val ignoredClassNames = setOf(
             "android.widget.FrameLayout",
+            "androidx.fragment.app.FragmentContainerView",
             "android.widget.ScrollView",
             "android.widget.LinearLayout",
+            "android.widget.RelativeLayout",
+            "androidx.constraintlayout.widget.ConstraintLayout",
             "android.view.View",
             "android.view.ViewGroup",
+            "android.widget.ViewFlipper",
+            "android.widget.ViewAnimator",
+            "android.widget.Toolbar",
+            "androidx.appcompat.widget.Toolbar",
             "com.android.internal.policy.DecorView"
         )
 
-        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
-            event.className in ignoredClassNames
-        ) {
+
+        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || event.className in ignoredClassNames) {
             logs(
                 LogLevel.VERBOSE,
                 "忽略无关事件: eventType=${event.eventType}, className=${event.className}"
             )
             return
         }
+        val raw = event.packageName.toString()
+        val nowScreenOff = !isScreenOff(this)
+        if (raw == lastPackageName && status.isUsing == nowScreenOff) {
+            logs(LogLevel.DEBUG, "重复状态: $raw,${nowScreenOff}")
+            return
+        }
+        logs(
+            LogLevel.DEBUG,
+            "处理包名: $raw，类名：${event.className}，亮屏：${nowScreenOff}"
+        )
 
-        val pkgName = event.packageName?.toString()
-        val currentIsUsing = !isScreenOff(this)
+        val pkgName = raw.let {
+            if (it == "com.android.systemui") {
+                logs(LogLevel.DEBUG, "fallback ：$lastPackageName")
+                lastPackageName
+            } else {
+                it
+            }
+        }
 
-        if (pkgName == lastPackageName && isUsing == currentIsUsing) {
-            logs(LogLevel.VERBOSE, "已忽略: $pkgName，isUsing未变=$isUsing")
+        if (isInputMethod(pkgName.toString())) {
+            logs(LogLevel.VERBOSE, "忽略输入法包名: $pkgName")
             return
         }
 
-        isUsing = currentIsUsing
+        lastPackageName = pkgName
 
-        logs(LogLevel.DEBUG, "处理包名: $pkgName，类名：${event.className}，亮屏：${isUsing}")
 
-        pkgName?.takeIf { it.isNotEmpty() }?.let { packageName ->
-            handlePackageChange(packageName)
-        }
+        pkgName?.let { handlePackageChange(it) }
+
     }
 
     override fun onInterrupt() = logs(LogLevel.ERROR, "无障碍服务被中断")
@@ -133,23 +160,16 @@ class AppChangeDetectorService : AccessibilityService() {
     }
 
     private fun handlePackageChange(packageName: String) {
-        if (isInputMethod(packageName)) {
-            logs(LogLevel.VERBOSE, "忽略输入法包名: $packageName")
-            return
-        }
 
         reportRunnable?.let {
             logs(LogLevel.DEBUG, "取消: $lastPackageName;替换: $packageName")
             handler.removeCallbacks(it)
         }
 
-        lastPackageName = packageName
-
         reportRunnable = Runnable {
-            val resolvedAppName = resolveAppName(packageName)
+            status.appName = resolveAppName(packageName)
             updateDeviceState()
-            logs(LogLevel.VERBOSE, "亮屏:$isUsing")
-            sendToServer(resolvedAppName)
+            sendToServer(status)
             reportRunnable = null
         }
         handler.postDelayed(reportRunnable!!, REPORT_DELAY_MS)
@@ -163,34 +183,33 @@ class AppChangeDetectorService : AccessibilityService() {
         val isDisplayOff = display?.state == Display.STATE_OFF || display == null
         val isNonInteractive = powerManager?.isInteractive == false
 
+        if (display == null) {
+            logs(LogLevel.WARN, "无法获取默认显示器")
+        }
+
         return isNonInteractive || isDisplayOff
     }
+
 
     private fun updateDeviceState() {
         val bm = getSystemService(BATTERY_SERVICE) as? BatteryManager
         val chargingStatus = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_STATUS) ?: -1
         val battery = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
 
-//        isUsing = !isScreenOff(this)
-        isCharging = chargingStatus == BatteryManager.BATTERY_STATUS_CHARGING ||
-                chargingStatus == BatteryManager.BATTERY_STATUS_FULL
-        batteryPct = if (battery in 0..100) battery else -1
+        status.isUsing = !isScreenOff(this)
+        status.isCharging =
+            chargingStatus == BatteryManager.BATTERY_STATUS_CHARGING || chargingStatus == BatteryManager.BATTERY_STATUS_FULL
+        status.batteryPct = if (battery in 0..100) battery else -1
 
         logs(
             LogLevel.VERBOSE,
-            "设备状态 -  isCharging=$isCharging, batteryPct=$batteryPct"
+            "设备状态 -${status.appName}${status.batteryPct}[${status.isUsing}], isCharging=${status.isCharging}"
         )
     }
 
-
     private fun resolveAppName(packageName: String): String {
         val appName = getAppName(packageName)
-        return if (appName == "系统界面") {
-            lastAppName ?: appName
-        } else {
-            lastAppName = appName
-            appName
-        }
+        return appName
     }
 
     private fun isInputMethod(packageName: String): Boolean {
@@ -202,16 +221,15 @@ class AppChangeDetectorService : AccessibilityService() {
         }
     }
 
-    private fun sendToServer(appName: String) {
-        val config = getConfigValues() ?: run {
-            logs(LogLevel.ERROR, "配置参数不完整")
-            return
-        }
+    private fun sendToServer(status: Status) {
+        val config = cachedConfig ?: return
 
-        val request = Request.Builder().url(config.url)
-            .post(createRequestBody(appName, config.secret, config.id, config.showName))
-            .addHeader("User-Agent", USER_AGENT).build()
-        logs(LogLevel.INFO, "${appName}[${isUsing}]")
+        val request = Request.Builder().url(config.url).post(
+            createRequestBody(
+                status.appName, config.secret, config.id, config.showName, status.isUsing
+            )
+        ).addHeader("User-Agent", USER_AGENT).build()
+        logs(LogLevel.INFO, "${status.appName}[${status.isUsing}]")
 
         httpClient.newCall(request).enqueue(ServerCallback())
     }
@@ -230,16 +248,16 @@ class AppChangeDetectorService : AccessibilityService() {
     }
 
     private fun createRequestBody(
-        appName: String, secret: String, id: String, showName: String
+        appName: String, secret: String, id: String, showName: String, using: Boolean
     ): RequestBody {
         val json = JSONObject().apply {
             put("id", id)
             put("secret", secret)
             put("show_name", showName)
-            put("using", isUsing)
+            put("using", using)
             put(
                 "app_name",
-                "$appName[${batteryPct ?: "-"}%]${if (isCharging) "\u26A1\uFE0F" else "\uD83D\uDD0B"}"
+                "$appName[${status.batteryPct ?: "-"}%]${if (status.isCharging) "\u26A1\uFE0F" else "\uD83D\uDD0B"}"
             )
         }
         return json.toString().toRequestBody(JSON_MIME.toMediaType())
