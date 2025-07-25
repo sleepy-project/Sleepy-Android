@@ -2,8 +2,12 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-}
 
+}
+repositories {
+    google()
+    mavenCentral()
+}
 android {
     namespace = "com.zmal.sleepy"
     compileSdk = 36
@@ -11,9 +15,7 @@ android {
     defaultConfig {
         applicationId = "com.zmal.sleepy"
         minSdk = 29
-        //noinspection OldTargetApi
-        targetSdk = 35
-        versionCode = 23
+        versionCode = 26
         versionName = "1.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -32,8 +34,9 @@ android {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
-    kotlinOptions {
-        jvmTarget = "21"
+    buildFeatures {
+        buildConfig = true
+//        viewBinding = true
     }
     buildFeatures {
         compose = true

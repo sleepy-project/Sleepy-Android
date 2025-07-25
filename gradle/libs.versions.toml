@@ -1,17 +1,17 @@
 [versions]
-agp = "8.11.0"
+agp = "8.11.1"
 appcompat = "1.7.1"
-foundation = "1.8.2"
-kotlin = "2.0.21"
+foundation = "1.8.3"
+kotlin = "2.2.0"
 coreKtx = "1.16.0"
 junit = "4.13.2"
 junitVersion = "1.2.1"
 espressoCore = "3.6.1"
-lifecycleRuntimeKtx = "2.9.1"
+lifecycleRuntimeKtx = "2.9.2"
 activityCompose = "1.10.1"
-composeBom = "2025.06.00"
-okhttp = "4.12.0"
-runtimeLivedata = "1.8.2"
+composeBom = "2025.07.00"
+okhttp = "5.1.0"
+runtimeLivedata = "1.8.3"
 
 [libraries]
 androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }

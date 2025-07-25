@@ -292,7 +292,7 @@ class AppChangeDetectorService : AccessibilityService() {
 
             response.use {
                 val bodyStr = try {
-                    response.body?.string().orEmpty()
+                    response.body.string()
                 } catch (e: Exception) {
                     logs(LogLevel.ERROR, "读取响应体失败: ${e.message}")
                     ""

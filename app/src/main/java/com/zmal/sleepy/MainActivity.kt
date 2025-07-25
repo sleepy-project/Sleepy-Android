@@ -126,7 +126,7 @@ class MainActivity : ComponentActivity() {
 fun MainScreen() {
     val context = LocalContext.current
     val sharedPreferences =
-        remember { context.getSharedPreferences("config", Context.MODE_PRIVATE) }
+         context.getSharedPreferences("config", Context.MODE_PRIVATE)
     val configLiveData = remember { MutableLiveData<Map<String, String>>() }
     val logViewModel: LogViewModel = viewModel()
     val logs by logViewModel.logs.collectAsState(emptyList())
@@ -157,18 +157,7 @@ fun MainScreen() {
 
     val config by configLiveData.observeAsState(emptyMap())
 
-    val versionName = remember {
-        runCatching {
-            val pm = context.packageManager
-            val pkg = context.packageName
-            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                pm.getPackageInfo(pkg, PackageManager.PackageInfoFlags.of(0))
-            } else {
-                @Suppress("DEPRECATION") pm.getPackageInfo(pkg, 0)
-            }
-            "v${info.versionName}(${info.longVersionCode})"
-        }.getOrDefault("N/A")
-    }
+    val versionName = "v${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE})"
 
     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
         Column(
